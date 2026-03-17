@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}My Bookings - {{ app_name }}{% endblock %}
+{% block page_title %}{% if current_user.is_admin %}All Bookings{% else %}My Bookings{% endif %}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">{{ bookings|length }} booking(s)</p>
+  <a href="{{ url_for('bookings.create') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>New Booking
+  </a>
+</div>
+
+{% if bookings %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Resource</th>
+          {% if current_user.is_admin %}<th>User</th>{% endif %}
+          <th>Start</th>
+          <th>End</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for booking in bookings %}
+        <tr>
+          <td class="fw-medium">{{ booking.title }}</td>
+          <td>
+            <a href="{{ url_for('resources.detail', resource_id=booking.resource_id) }}" class="text-decoration-none">
+              {{ booking.resource.name }}
+            </a>
+          </td>
+          {% if current_user.is_admin %}
+          <td>{{ booking.user.display_name }}</td>
+          {% endif %}
+          <td>{{ booking.start_time.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ booking.end_time.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            {% if booking.status == 'confirmed' %}
+              <span class="badge bg-success">Confirmed</span>
+            {% else %}
+              <span class="badge bg-secondary">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if booking.status == 'confirmed' %}
+            <form method="POST" action="{{ url_for('bookings.cancel', booking_id=booking.id) }}"
+                  class="d-inline" onsubmit="return confirm('Cancel this booking?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-x-circle me-1"></i>Cancel
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-calendar3 d-block"></i>
+  <h5>No bookings yet</h5>
+  <p class="text-muted">Create your first booking to reserve a testbed.</p>
+  <a href="{{ url_for('bookings.create') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>New Booking
+  </a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,71 @@
+import subprocess
+import re
+import logging
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+
+def ping_host(ip_address, timeout=2):
+    """Ping a host and return (is_reachable, response_time_ms)."""
+    if not ip_address:
+        return False, None
+
+    try:
+        result = subprocess.run(
+            ['ping', '-c', '1', '-W', str(timeout), ip_address],
+            capture_output=True, text=True, timeout=timeout + 2,
+        )
+
+        if result.returncode == 0:
+            match = re.search(r'time[=<]([\d.]+)\s*ms', result.stdout)
+            response_time = float(match.group(1)) if match else None
+            return True, response_time
+        return False, None
+
+    except (subprocess.TimeoutExpired, OSError, Exception) as e:
+        logger.debug(f'Ping failed for {ip_address}: {e}')
+        return False, None
+
+
+def ping_all_resources(app):
+    """Background job: ping all active resources with IP addresses."""
+    with app.app_context():
+        from app.extensions import db
+        from app.models import Resource, PingResult
+
+        resources = Resource.query.filter(
+            Resource.ip_address.isnot(None),
+            Resource.ip_address != '',
+            Resource.is_active.is_(True),
+        ).all()
+
+        timeout = app.config.get('PING_TIMEOUT_SECONDS', 2)
+        history_limit = app.config.get('PING_HISTORY_LIMIT', 100)
+
+        for resource in resources:
+            is_reachable, response_time = ping_host(resource.ip_address, timeout)
+
+            ping_result = PingResult(
+                resource_id=resource.id,
+                is_reachable=is_reachable,
+                response_time_ms=response_time,
+                checked_at=datetime.now(timezone.utc),
+            )
+            db.session.add(ping_result)
+
+            # Prune old results
+            count = PingResult.query.filter_by(resource_id=resource.id).count()
+            if count > history_limit:
+                old_results = (
+                    PingResult.query
+                    .filter_by(resource_id=resource.id)
+                    .order_by(PingResult.checked_at.asc())
+                    .limit(count - history_limit)
+                    .all()
+                )
+                for old in old_results:
+                    db.session.delete(old)
+
+        db.session.commit()
+        logger.info(f'Pinged {len(resources)} resources')

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Resources - {{ app_name }}{% endblock %}
+{% block page_title %}Resources{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <p class="text-muted mb-0">Manage testbeds and their child resources</p>
+  </div>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('resources.add_resource') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Add Testbed
+  </a>
+  {% endif %}
+</div>
+
+{% if testbeds %}
+<div class="row g-4">
+  {% for testbed in testbeds %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card resource-card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="resource-type">{{ testbed.resource_type }}</span>
+          <span hx-get="{{ url_for('monitoring.resource_status', resource_id=testbed.id) }}"
+                hx-trigger="load, every 30s"
+                hx-swap="innerHTML">
+            <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>...</span>
+          </span>
+        </div>
+        <h5 class="resource-name">
+          <a href="{{ url_for('resources.detail', resource_id=testbed.id) }}" class="text-decoration-none" style="color: var(--text-primary);">
+            {{ testbed.name }}
+          </a>
+        </h5>
+        {% if testbed.description %}
+        <p class="text-muted small mb-3">{{ testbed.description|truncate(100) }}</p>
+        {% endif %}
+        <div class="resource-meta">
+          {% if testbed.ip_address %}
+          <span><i class="bi bi-hdd-network"></i>{{ testbed.ip_address }}</span>
+          {% endif %}
+          {% if testbed.location %}
+          <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>
+          {% endif %}
+          <span><i class="bi bi-diagram-3"></i>{{ testbed.children.count() }} children</span>
+        </div>
+      </div>
+      <div class="card-footer bg-transparent border-top d-flex justify-content-between align-items-center py-2">
+        <a href="{{ url_for('resources.detail', resource_id=testbed.id) }}" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-eye me-1"></i>Details
+        </a>
+        <a href="{{ url_for('bookings.create') }}?resource_id={{ testbed.id }}" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-calendar-plus me-1"></i>Book
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-hdd-stack d-block"></i>
+  <h5>No resources yet</h5>
+  <p class="text-muted">Add your first testbed to get started.</p>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('resources.add_resource') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Add Testbed
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

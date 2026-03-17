@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}500 Server Error{% endblock %}
+{% block page_title %}Server Error{% endblock %}
+
+{% block content %}
+<div class="empty-state">
+  <i class="bi bi-exclamation-triangle d-block"></i>
+  <h5>500 - Server Error</h5>
+  <p class="text-muted">Something went wrong. Please try again later.</p>
+  <a href="{{ url_for('resources.list_resources') }}" class="btn btn-primary">
+    <i class="bi bi-house me-1"></i>Go Home
+  </a>
+</div>
+{% endblock %}

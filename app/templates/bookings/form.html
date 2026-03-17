@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body p-4">
+        <form method="POST">
+          {{ form.hidden_tag() }}
+
+          <div class="mb-3">
+            {{ form.resource_id.label(class="form-label") }}
+            {{ form.resource_id(class="form-select") }}
+            {% for error in form.resource_id.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="mb-3">
+            {{ form.title.label(class="form-label") }}
+            {{ form.title(class="form-control", placeholder="e.g. Integration Testing Sprint 5") }}
+            {% for error in form.title.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              {{ form.start_time.label(class="form-label") }}
+              {{ form.start_time(class="form-control", type="datetime-local") }}
+              {% for error in form.start_time.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="col-md-6 mb-3">
+              {{ form.end_time.label(class="form-label") }}
+              {{ form.end_time(class="form-control", type="datetime-local") }}
+              {% for error in form.end_time.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mb-4">
+            {{ form.notes.label(class="form-label") }}
+            {{ form.notes(class="form-control", rows="3", placeholder="Optional notes about this booking...") }}
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>Create Booking
+            </button>
+            <a href="{{ url_for('bookings.list_bookings') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Pre-select resource if passed via URL
+  const params = new URLSearchParams(window.location.search);
+  const resourceId = params.get('resource_id');
+  if (resourceId) {
+    const select = document.getElementById('resource_id');
+    if (select) select.value = resourceId;
+  }
+</script>
+{% endblock %}

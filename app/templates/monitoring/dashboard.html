@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Monitoring - {{ app_name }}{% endblock %}
+{% block page_title %}Monitoring Dashboard{% endblock %}
+
+{% block content %}
+<p class="text-muted mb-4">Live ICMP monitoring of all active resources with IP addresses</p>
+
+{% if resources %}
+<div class="row g-4">
+  {% for resource in resources %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h6 class="mb-1">
+              <a href="{{ url_for('resources.detail', resource_id=resource.id) }}" class="text-decoration-none" style="color: var(--text-primary);">
+                {{ resource.name }}
+              </a>
+            </h6>
+            <code class="small">{{ resource.ip_address }}</code>
+            {% if resource.parent %}
+              <span class="text-muted small ms-2">
+                <i class="bi bi-arrow-return-right"></i> {{ resource.parent.name }}
+              </span>
+            {% endif %}
+          </div>
+          <span hx-get="{{ url_for('monitoring.resource_status', resource_id=resource.id) }}"
+                hx-trigger="load, every 15s"
+                hx-swap="innerHTML">
+            <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>...</span>
+          </span>
+        </div>
+
+        <!-- Mini ping history bar -->
+        {% set pings = resource.ping_results[:30]|list %}
+        {% if pings %}
+        <div class="ping-bar">
+          {% for ping in pings|reverse %}
+          <div class="ping-tick {{ 'up' if ping.is_reachable else 'down' }}"
+               style="height: {{ [ping.response_time_ms or 24, 24]|min }}px;"
+               title="{{ ping.checked_at.strftime('%H:%M') }} - {{ '%.1f ms'|format(ping.response_time_ms) if ping.response_time_ms else 'Timeout' }}">
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <small class="text-muted">Waiting for first ping...</small>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-activity d-block"></i>
+  <h5>No monitored resources</h5>
+  <p class="text-muted">Add resources with IP addresses to enable monitoring.</p>
+</div>
+{% endif %}
+{% endblock %}

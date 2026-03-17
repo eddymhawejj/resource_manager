@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Calendar - {{ app_name }}{% endblock %}
+{% block page_title %}Booking Calendar{% endblock %}
+
+{% block head %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="d-flex align-items-center gap-3">
+    <select id="calendar-resource-filter" class="form-select" style="width: auto;" onchange="if(window._calendar) window._calendar.refetchEvents();">
+      <option value="">All Testbeds</option>
+      {% for testbed in testbeds %}
+      <option value="{{ testbed.id }}">{{ testbed.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <a href="{{ url_for('bookings.create') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>New Booking
+  </a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div id="booking-calendar"></div>
+  </div>
+</div>
+
+<!-- Event Detail Modal -->
+<div class="modal fade" id="eventDetailModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background: var(--bg-card); color: var(--text-primary); border-color: var(--border-color);">
+      <div class="modal-header border-bottom" style="border-color: var(--border-color) !important;">
+        <h5 class="modal-title" id="modal-title"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-borderless mb-0">
+          <tr><td class="text-muted fw-medium" style="width: 100px;">User</td><td id="modal-user"></td></tr>
+          <tr><td class="text-muted fw-medium">Resource</td><td id="modal-resource"></td></tr>
+          <tr><td class="text-muted fw-medium">Start</td><td id="modal-start"></td></tr>
+          <tr><td class="text-muted fw-medium">End</td><td id="modal-end"></td></tr>
+          <tr><td class="text-muted fw-medium">Notes</td><td id="modal-notes"></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    window._calendar = initCalendar('booking-calendar', '{{ url_for("bookings.events") }}');
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+from flask_wtf import FlaskForm
+from flask_wtf.file import FileField, FileAllowed
+from wtforms import StringField, SelectField, BooleanField, PasswordField, IntegerField
+from wtforms.validators import DataRequired, Email, Length, Optional, NumberRange
+
+
+class UserEditForm(FlaskForm):
+    display_name = StringField('Display Name', validators=[DataRequired(), Length(max=120)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    role = SelectField('Role', choices=[('user', 'User'), ('admin', 'Admin')])
+    is_active = BooleanField('Active')
+
+
+class SmtpSettingsForm(FlaskForm):
+    smtp_host = StringField('SMTP Host', validators=[Optional(), Length(max=200)])
+    smtp_port = IntegerField('SMTP Port', validators=[Optional(), NumberRange(1, 65535)], default=587)
+    smtp_use_tls = BooleanField('Use TLS', default=True)
+    smtp_username = StringField('Username', validators=[Optional(), Length(max=200)])
+    smtp_password = PasswordField('Password', validators=[Optional(), Length(max=200)])
+    smtp_sender = StringField('Sender Email', validators=[Optional(), Email()])
+
+
+class LdapSettingsForm(FlaskForm):
+    ldap_enabled = BooleanField('Enable LDAP')
+    ldap_url = StringField('LDAP URL', validators=[Optional(), Length(max=200)])
+    ldap_base_dn = StringField('Base DN', validators=[Optional(), Length(max=200)])
+    ldap_user_dn = StringField('User DN', validators=[Optional(), Length(max=200)])
+    ldap_bind_dn = StringField('Bind DN', validators=[Optional(), Length(max=200)])
+    ldap_bind_password = PasswordField('Bind Password', validators=[Optional(), Length(max=200)])
+
+
+class LogoUploadForm(FlaskForm):
+    logo = FileField('Logo Image', validators=[
+        FileAllowed(['png', 'jpg', 'jpeg', 'svg', 'gif'], 'Images only!')
+    ])
+    app_name = StringField('Application Name', validators=[Optional(), Length(max=100)])

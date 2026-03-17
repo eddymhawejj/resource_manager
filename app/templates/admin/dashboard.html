@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard - {{ app_name }}{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-4 mb-4">
+  <div class="col-md-3">
+    <div class="card stat-card">
+      <div class="stat-value">{{ stats.users }}</div>
+      <div class="stat-label">Users</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card">
+      <div class="stat-value">{{ stats.resources }}</div>
+      <div class="stat-label">Testbeds</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card">
+      <div class="stat-value">{{ stats.child_resources }}</div>
+      <div class="stat-label">Child Resources</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card stat-card">
+      <div class="stat-value">{{ stats.bookings }}</div>
+      <div class="stat-label">Active Bookings</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-lightning me-2"></i>Quick Actions</div>
+      <div class="card-body">
+        <div class="d-flex flex-column gap-2">
+          <a href="{{ url_for('resources.add_resource') }}" class="btn btn-outline-primary text-start">
+            <i class="bi bi-plus-lg me-2"></i>Add New Testbed
+          </a>
+          <a href="{{ url_for('admin.users') }}" class="btn btn-outline-primary text-start">
+            <i class="bi bi-people me-2"></i>Manage Users
+          </a>
+          <a href="{{ url_for('admin.settings') }}" class="btn btn-outline-primary text-start">
+            <i class="bi bi-gear me-2"></i>Configure Settings
+          </a>
+          <a href="{{ url_for('monitoring.dashboard') }}" class="btn btn-outline-primary text-start">
+            <i class="bi bi-activity me-2"></i>View Monitoring
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

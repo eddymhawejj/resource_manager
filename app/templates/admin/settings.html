@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ app_name }}{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Branding -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-palette me-2"></i>Branding</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_branding') }}" enctype="multipart/form-data">
+          {{ logo_form.hidden_tag() }}
+
+          <div class="mb-3">
+            {{ logo_form.app_name.label(class="form-label") }}
+            {{ logo_form.app_name(class="form-control") }}
+          </div>
+
+          <div class="mb-3">
+            {{ logo_form.logo.label(class="form-label") }}
+            {{ logo_form.logo(class="form-control") }}
+            <small class="form-text text-muted">PNG, JPG, SVG or GIF. Max 2MB.</small>
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Save Branding
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- SMTP -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-envelope me-2"></i>SMTP Email Settings</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_smtp') }}">
+          {{ smtp_form.hidden_tag() }}
+
+          <div class="row">
+            <div class="col-8 mb-3">
+              {{ smtp_form.smtp_host.label(class="form-label") }}
+              {{ smtp_form.smtp_host(class="form-control", placeholder="smtp.example.com") }}
+            </div>
+            <div class="col-4 mb-3">
+              {{ smtp_form.smtp_port.label(class="form-label") }}
+              {{ smtp_form.smtp_port(class="form-control") }}
+            </div>
+          </div>
+
+          <div class="mb-3 form-check">
+            {{ smtp_form.smtp_use_tls(class="form-check-input") }}
+            {{ smtp_form.smtp_use_tls.label(class="form-check-label") }}
+          </div>
+
+          <div class="mb-3">
+            {{ smtp_form.smtp_username.label(class="form-label") }}
+            {{ smtp_form.smtp_username(class="form-control") }}
+          </div>
+
+          <div class="mb-3">
+            {{ smtp_form.smtp_password.label(class="form-label") }}
+            {{ smtp_form.smtp_password(class="form-control", placeholder="Leave blank to keep current") }}
+          </div>
+
+          <div class="mb-3">
+            {{ smtp_form.smtp_sender.label(class="form-label") }}
+            {{ smtp_form.smtp_sender(class="form-control", placeholder="noreply@example.com") }}
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Save SMTP
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- LDAP -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-shield-lock me-2"></i>LDAP Settings</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_ldap') }}">
+          {{ ldap_form.hidden_tag() }}
+
+          <div class="mb-3 form-check">
+            {{ ldap_form.ldap_enabled(class="form-check-input") }}
+            {{ ldap_form.ldap_enabled.label(class="form-check-label") }}
+          </div>
+
+          <div class="mb-3">
+            {{ ldap_form.ldap_url.label(class="form-label") }}
+            {{ ldap_form.ldap_url(class="form-control", placeholder="ldap://ldap.example.com") }}
+          </div>
+
+          <div class="mb-3">
+            {{ ldap_form.ldap_base_dn.label(class="form-label") }}
+            {{ ldap_form.ldap_base_dn(class="form-control", placeholder="dc=example,dc=com") }}
+          </div>
+
+          <div class="mb-3">
+            {{ ldap_form.ldap_user_dn.label(class="form-label") }}
+            {{ ldap_form.ldap_user_dn(class="form-control", placeholder="ou=users") }}
+          </div>
+
+          <div class="mb-3">
+            {{ ldap_form.ldap_bind_dn.label(class="form-label") }}
+            {{ ldap_form.ldap_bind_dn(class="form-control", placeholder="cn=admin,dc=example,dc=com") }}
+          </div>
+
+          <div class="mb-3">
+            {{ ldap_form.ldap_bind_password.label(class="form-label") }}
+            {{ ldap_form.ldap_bind_password(class="form-control", placeholder="Leave blank to keep current") }}
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Save LDAP
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
