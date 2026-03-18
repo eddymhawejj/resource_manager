@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Waitlist - {{ app_name }}{% endblock %}
+{% block page_title %}Waitlist{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">{{ entries|length }} waitlist entry(ies)</p>
+</div>
+
+{% if entries %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Resource</th>
+          {% if current_user.is_admin %}<th>User</th>{% endif %}
+          <th>Desired Start</th>
+          <th>Desired End</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td>
+            <a href="{{ url_for('resources.detail', resource_id=entry.resource_id) }}" class="text-decoration-none">
+              {{ entry.resource.name }}
+            </a>
+          </td>
+          {% if current_user.is_admin %}
+          <td>{{ entry.user.display_name }}</td>
+          {% endif %}
+          <td>{{ entry.desired_start.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ entry.desired_end.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            {% if entry.status == 'waiting' %}
+              <span class="badge bg-warning">Waiting</span>
+            {% elif entry.status == 'notified' %}
+              <span class="badge bg-success">Notified</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ entry.status|title }}</span>
+            {% endif %}
+          </td>
+          <td><small class="text-muted">{{ entry.notes or '-' }}</small></td>
+          <td>
+            <form method="POST" action="{{ url_for('bookings.remove_from_waitlist', entry_id=entry.id) }}"
+                  class="d-inline" onsubmit="return confirm('Remove from waitlist?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-x-circle me-1"></i>Remove
+              </button>
+            </form>
+            {% if entry.status == 'notified' %}
+            <a href="{{ url_for('bookings.create') }}?resource_id={{ entry.resource_id }}" class="btn btn-sm btn-outline-success">
+              <i class="bi bi-calendar-plus me-1"></i>Book Now
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-clock-history d-block"></i>
+  <h5>No waitlist entries</h5>
+  <p class="text-muted">When a resource is booked, you can join the waitlist to be notified when it becomes available.</p>
+</div>
+{% endif %}
+{% endblock %}

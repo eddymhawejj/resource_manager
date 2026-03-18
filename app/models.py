@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -6,6 +7,14 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.extensions import db
+
+
+# ===== Association table for Resource <-> Tag many-to-many =====
+resource_tags = db.Table(
+    'resource_tags',
+    db.Column('resource_id', db.Integer, db.ForeignKey('resources.id'), primary_key=True),
+    db.Column('tag_id', db.Integer, db.ForeignKey('tags.id'), primary_key=True),
+)
 
 
 class User(UserMixin, db.Model):
@@ -59,6 +68,7 @@ class Resource(db.Model):
                             cascade='all, delete-orphan')
     bookings = db.relationship('Booking', backref='resource', lazy='dynamic',
                                cascade='all, delete-orphan')
+    tags = db.relationship('Tag', secondary=resource_tags, back_populates='resources', lazy='dynamic')
 
     @property
     def is_testbed(self):
@@ -316,3 +326,143 @@ class AppSettings(db.Model):
 
     def __repr__(self):
         return f'<AppSettings {self.key}={self.value}>'
+
+
+# ===== Tag model for resource labels =====
+class Tag(db.Model):
+    __tablename__ = 'tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False, unique=True, index=True)
+    color = db.Column(db.String(7), nullable=False, default='#6c757d')  # hex color
+
+    resources = db.relationship('Resource', secondary=resource_tags, back_populates='tags')
+
+    def __repr__(self):
+        return f'<Tag {self.name}>'
+
+
+# ===== Favorite resources =====
+class Favorite(db.Model):
+    __tablename__ = 'favorites'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = db.relationship('User', backref=db.backref('favorites', lazy='dynamic'))
+    resource = db.relationship('Resource', backref=db.backref('favorited_by', lazy='dynamic'))
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'resource_id', name='uq_user_resource_fav'),)
+
+    def __repr__(self):
+        return f'<Favorite user={self.user_id} resource={self.resource_id}>'
+
+
+# ===== Audit log =====
+class AuditLog(db.Model):
+    __tablename__ = 'audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    action = db.Column(db.String(50), nullable=False)  # e.g. 'booking.create', 'resource.delete'
+    target_type = db.Column(db.String(50), nullable=True)  # e.g. 'booking', 'resource'
+    target_id = db.Column(db.Integer, nullable=True)
+    details = db.Column(db.Text, nullable=True)  # JSON extra info
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    user = db.relationship('User', backref=db.backref('audit_logs', lazy='dynamic'))
+
+    @staticmethod
+    def log(action, target_type=None, target_id=None, details=None, user_id=None):
+        """Create an audit log entry."""
+        if details and not isinstance(details, str):
+            details = json.dumps(details)
+        entry = AuditLog(
+            user_id=user_id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            details=details,
+        )
+        db.session.add(entry)
+
+    def __repr__(self):
+        return f'<AuditLog {self.action} @ {self.timestamp}>'
+
+
+# ===== Maintenance Window =====
+class MaintenanceWindow(db.Model):
+    __tablename__ = 'maintenance_windows'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False)
+    start_time = db.Column(db.DateTime, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    resource = db.relationship('Resource', backref=db.backref('maintenance_windows', lazy='dynamic'))
+    creator = db.relationship('User')
+
+    @property
+    def is_active(self):
+        now = datetime.now(timezone.utc)
+        return self.start_time <= now <= self.end_time
+
+    @staticmethod
+    def resource_in_maintenance(resource_id):
+        """Check if a resource currently has an active maintenance window."""
+        now = datetime.now(timezone.utc)
+        return MaintenanceWindow.query.filter(
+            MaintenanceWindow.resource_id == resource_id,
+            MaintenanceWindow.start_time <= now,
+            MaintenanceWindow.end_time >= now,
+        ).first() is not None
+
+    def __repr__(self):
+        return f'<MaintenanceWindow {self.title}>'
+
+
+# ===== Alert Configuration =====
+class AlertRule(db.Model):
+    __tablename__ = 'alert_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    alert_type = db.Column(db.String(20), nullable=False, default='email')  # 'email' or 'webhook'
+    target = db.Column(db.String(500), nullable=False)  # email address or webhook URL
+    enabled = db.Column(db.Boolean, default=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_triggered = db.Column(db.DateTime, nullable=True)
+
+    resource = db.relationship('Resource', backref=db.backref('alert_rules', lazy='dynamic'))
+    creator = db.relationship('User')
+
+    def __repr__(self):
+        return f'<AlertRule {self.alert_type}:{self.target} for resource {self.resource_id}>'
+
+
+# ===== Waitlist =====
+class WaitlistEntry(db.Model):
+    __tablename__ = 'waitlist_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    desired_start = db.Column(db.DateTime, nullable=False)
+    desired_end = db.Column(db.DateTime, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='waiting')  # 'waiting', 'notified', 'expired'
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notified_at = db.Column(db.DateTime, nullable=True)
+
+    resource = db.relationship('Resource', backref=db.backref('waitlist_entries', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('waitlist_entries', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<WaitlistEntry user={self.user_id} resource={self.resource_id}>'

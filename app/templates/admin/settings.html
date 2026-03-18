@@ -126,6 +126,28 @@
     </div>
   </div>
 
+  <!-- Teams Webhook -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-chat-dots me-2"></i>Microsoft Teams Notifications</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.save_teams') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label">Teams Webhook URL</label>
+            <input type="url" name="teams_webhook_url" class="form-control"
+                   placeholder="https://outlook.office.com/webhook/..."
+                   value="{{ teams_webhook_url or '' }}">
+            <small class="form-text text-muted">Incoming webhook URL from your Teams channel. Leave blank to disable.</small>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Save Teams Settings
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- LDAP -->
   <div class="col-lg-6">
     <div class="card">

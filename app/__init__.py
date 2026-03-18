@@ -244,6 +244,132 @@ def _auto_migrate(db):
             '''))
             db.session.commit()
 
+    # Create tags table if missing
+    if 'tags' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(50) NOT NULL UNIQUE,
+                color VARCHAR(7) NOT NULL DEFAULT '#6c757d'
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE UNIQUE INDEX ix_tags_name ON tags (name)'
+        ))
+        db.session.commit()
+
+    # Create resource_tags association table if missing
+    if 'resource_tags' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE resource_tags (
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                tag_id INTEGER NOT NULL REFERENCES tags(id),
+                PRIMARY KEY (resource_id, tag_id)
+            )
+        '''))
+        db.session.commit()
+
+    # Create favorites table if missing
+    if 'favorites' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                created_at DATETIME,
+                UNIQUE (user_id, resource_id)
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_favorites_user_id ON favorites (user_id)'
+        ))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_favorites_resource_id ON favorites (resource_id)'
+        ))
+        db.session.commit()
+
+    # Create audit_log table if missing
+    if 'audit_log' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER REFERENCES users(id),
+                action VARCHAR(50) NOT NULL,
+                target_type VARCHAR(50),
+                target_id INTEGER,
+                details TEXT,
+                timestamp DATETIME
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_audit_log_user_id ON audit_log (user_id)'
+        ))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_audit_log_timestamp ON audit_log (timestamp)'
+        ))
+        db.session.commit()
+
+    # Create maintenance_windows table if missing
+    if 'maintenance_windows' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE maintenance_windows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                title VARCHAR(200) NOT NULL,
+                start_time DATETIME NOT NULL,
+                end_time DATETIME NOT NULL,
+                notes TEXT,
+                created_by INTEGER REFERENCES users(id),
+                created_at DATETIME
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_maintenance_windows_resource_id ON maintenance_windows (resource_id)'
+        ))
+        db.session.commit()
+
+    # Create alert_rules table if missing
+    if 'alert_rules' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE alert_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                alert_type VARCHAR(20) NOT NULL DEFAULT 'email',
+                target VARCHAR(500) NOT NULL,
+                enabled BOOLEAN DEFAULT 1,
+                created_by INTEGER REFERENCES users(id),
+                created_at DATETIME,
+                last_triggered DATETIME
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_alert_rules_resource_id ON alert_rules (resource_id)'
+        ))
+        db.session.commit()
+
+    # Create waitlist_entries table if missing
+    if 'waitlist_entries' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE waitlist_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                desired_start DATETIME NOT NULL,
+                desired_end DATETIME NOT NULL,
+                notes TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+                created_at DATETIME,
+                notified_at DATETIME
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_waitlist_entries_resource_id ON waitlist_entries (resource_id)'
+        ))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_waitlist_entries_user_id ON waitlist_entries (user_id)'
+        ))
+        db.session.commit()
+
 
 def register_cli(app):
     import click
@@ -302,6 +428,22 @@ def start_scheduler(app):
         id='switch_vlan_sync',
         replace_existing=True,
     )
+
+    # Automated subnet discovery scan (every 12 hours if enabled)
+    auto_scan_interval = app.config.get('AUTO_SCAN_INTERVAL_HOURS', 0)
+    if auto_scan_interval and auto_scan_interval > 0:
+        from app.network.subnet_scan import start_scan_background
+
+        def _auto_scan():
+            start_scan_background(app)
+
+        scheduler.add_job(
+            func=_auto_scan,
+            trigger='interval',
+            hours=auto_scan_interval,
+            id='auto_subnet_scan',
+            replace_existing=True,
+        )
 
     scheduler.start()
     app.scheduler = scheduler

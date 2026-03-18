@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Health History - {{ resource.name }} - {{ app_name }}{% endblock %}
+{% block page_title %}Health History: {{ resource.name }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-4">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('monitoring.dashboard') }}">Monitoring</a></li>
+    <li class="breadcrumb-item active">{{ resource.name }}</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="mb-1">Overall Uptime: <span class="text-{% if overall_uptime >= 99 %}success{% elif overall_uptime >= 95 %}warning{% else %}danger{% endif %}">{{ overall_uptime }}%</span></h4>
+    <p class="text-muted mb-0">Last {{ days }} days</p>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <a href="?days=1" class="btn btn-{% if days == 1 %}primary{% else %}outline-primary{% endif %}">24h</a>
+    <a href="?days=7" class="btn btn-{% if days == 7 %}primary{% else %}outline-primary{% endif %}">7d</a>
+    <a href="?days=30" class="btn btn-{% if days == 30 %}primary{% else %}outline-primary{% endif %}">30d</a>
+    <a href="?days=90" class="btn btn-{% if days == 90 %}primary{% else %}outline-primary{% endif %}">90d</a>
+  </div>
+</div>
+
+{% for hd in host_data %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <code>{{ hd.host.address }}</code>
+      {% if hd.host.label %}<small class="text-muted ms-1">{{ hd.host.label }}</small>{% endif %}
+    </span>
+    <span class="badge bg-{% if hd.uptime_pct >= 99 %}success{% elif hd.uptime_pct >= 95 %}warning{% else %}danger{% endif %}">
+      {{ hd.uptime_pct }}% uptime
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="d-flex gap-4 mb-3">
+      <small class="text-muted">{{ hd.total }} checks</small>
+      <small class="text-success">{{ hd.up }} up</small>
+      <small class="text-danger">{{ hd.total - hd.up }} down</small>
+    </div>
+    <!-- Uptime bar visualization -->
+    <div class="ping-bar" style="height: 30px;">
+      {% for r in hd.results %}
+      <div class="ping-tick {{ 'up' if r.is_reachable else 'down' }}"
+           style="height: 30px; flex: 1; min-width: 1px; max-width: 4px;"
+           title="{{ r.checked_at.strftime('%Y-%m-%d %H:%M') }} - {{ '%.1f ms'|format(r.response_time_ms) if r.response_time_ms else 'Timeout' }}">
+      </div>
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-between mt-1">
+      <small class="text-muted">{% if hd.results %}{{ hd.results[0].checked_at.strftime('%m/%d %H:%M') }}{% endif %}</small>
+      <small class="text-muted">{% if hd.results %}{{ hd.results[-1].checked_at.strftime('%m/%d %H:%M') }}{% endif %}</small>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if not host_data %}
+<div class="empty-state">
+  <i class="bi bi-graph-up d-block"></i>
+  <h5>No health data</h5>
+  <p class="text-muted">Add hosts to this resource to start collecting health data.</p>
+</div>
+{% endif %}
+{% endblock %}

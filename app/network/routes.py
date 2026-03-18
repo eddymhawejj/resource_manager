@@ -1,4 +1,6 @@
-from flask import render_template, redirect, url_for, flash, abort, jsonify
+import ipaddress as _ipaddress
+
+from flask import render_template, redirect, url_for, flash, abort, jsonify, request
 from flask_login import login_required, current_user
 
 from app.network import bp
@@ -325,6 +327,102 @@ def delete_device(resource_id):
     db.session.commit()
     flash(f'Discovered device {name} deleted.', 'success')
     return redirect(url_for('network.overview'))
+
+
+@bp.route('/ipam')
+@login_required
+def ipam():
+    """IP Address Management: show used/free IPs per subnet."""
+    subnets = Subnet.query.order_by(Subnet.cidr).all()
+    subnet_data = []
+
+    for subnet in subnets:
+        try:
+            network = _ipaddress.ip_network(subnet.cidr, strict=False)
+        except ValueError:
+            continue
+
+        total_hosts = network.num_addresses - 2  # exclude network + broadcast
+        if total_hosts <= 0:
+            continue
+
+        used_ips = set()
+        hosts_in_subnet = ResourceHost.query.filter_by(subnet_id=subnet.id).all()
+        for h in hosts_in_subnet:
+            try:
+                used_ips.add(str(_ipaddress.ip_address(h.address)))
+            except ValueError:
+                from app.models import _resolve_to_ip
+                ip = _resolve_to_ip(h.address)
+                if ip:
+                    used_ips.add(str(ip))
+
+        free_count = total_hosts - len(used_ips)
+        utilization = (len(used_ips) / total_hosts * 100) if total_hosts > 0 else 0
+
+        subnet_data.append({
+            'subnet': subnet,
+            'total_hosts': total_hosts,
+            'used_count': len(used_ips),
+            'free_count': max(free_count, 0),
+            'utilization': round(utilization, 1),
+            'hosts': hosts_in_subnet,
+        })
+
+    return render_template('network/ipam.html', subnet_data=subnet_data)
+
+
+@bp.route('/topology')
+@login_required
+def topology():
+    """Network topology map: visual diagram of VLANs, subnets, hosts."""
+    vlans = Vlan.query.order_by(Vlan.number).all()
+    return render_template('network/topology.html', vlans=vlans)
+
+
+@bp.route('/topology/data')
+@login_required
+def topology_data():
+    """JSON data for the topology diagram."""
+    vlans = Vlan.query.order_by(Vlan.number).all()
+    nodes = []
+    edges = []
+
+    for vlan in vlans:
+        vlan_node_id = f'vlan-{vlan.id}'
+        nodes.append({
+            'id': vlan_node_id,
+            'label': f'VLAN {vlan.number}\n{vlan.name}',
+            'type': 'vlan',
+            'color': '#0d6efd',
+        })
+
+        for subnet in vlan.subnets.all():
+            subnet_node_id = f'subnet-{subnet.id}'
+            nodes.append({
+                'id': subnet_node_id,
+                'label': f'{subnet.cidr}\n{subnet.name}' if subnet.name else subnet.cidr,
+                'type': 'subnet',
+                'color': '#198754',
+            })
+            edges.append({'from': vlan_node_id, 'to': subnet_node_id})
+
+            for host in subnet.hosts.all():
+                host_node_id = f'host-{host.id}'
+                ping = host.latest_ping
+                status_color = '#6c757d'
+                if ping:
+                    status_color = '#198754' if ping.is_reachable else '#dc3545'
+                nodes.append({
+                    'id': host_node_id,
+                    'label': f'{host.address}\n{host.label}' if host.label else host.address,
+                    'type': 'host',
+                    'color': status_color,
+                    'resource': host.resource.name if host.resource else '',
+                })
+                edges.append({'from': subnet_node_id, 'to': host_node_id})
+
+    return jsonify({'nodes': nodes, 'edges': edges})
 
 
 def _auto_link_hosts_to_subnet(subnet):

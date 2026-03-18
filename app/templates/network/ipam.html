@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}IPAM - {{ app_name }}{% endblock %}
+{% block page_title %}IP Address Management{% endblock %}
+
+{% block content %}
+<p class="text-muted mb-4">Track IP address usage across all subnets</p>
+
+{% if subnet_data %}
+<div class="row g-4">
+  {% for sd in subnet_data %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          <code>{{ sd.subnet.cidr }}</code>
+          {% if sd.subnet.name %}<small class="text-muted ms-1">{{ sd.subnet.name }}</small>{% endif %}
+        </span>
+        <span class="badge bg-{% if sd.utilization >= 80 %}danger{% elif sd.utilization >= 50 %}warning{% else %}success{% endif %}">
+          {{ sd.utilization }}%
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="progress mb-3" style="height: 8px;">
+          <div class="progress-bar bg-{% if sd.utilization >= 80 %}danger{% elif sd.utilization >= 50 %}warning{% else %}success{% endif %}"
+               style="width: {{ sd.utilization }}%"></div>
+        </div>
+        <div class="row text-center mb-3">
+          <div class="col-4">
+            <div class="fw-bold">{{ sd.total_hosts }}</div>
+            <small class="text-muted">Total</small>
+          </div>
+          <div class="col-4">
+            <div class="fw-bold text-primary">{{ sd.used_count }}</div>
+            <small class="text-muted">Used</small>
+          </div>
+          <div class="col-4">
+            <div class="fw-bold text-success">{{ sd.free_count }}</div>
+            <small class="text-muted">Free</small>
+          </div>
+        </div>
+        {% if sd.subnet.gateway %}
+        <small class="text-muted d-block mb-2">Gateway: {{ sd.subnet.gateway }}</small>
+        {% endif %}
+        {% if sd.hosts %}
+        <details>
+          <summary class="text-muted small mb-2" style="cursor: pointer;">{{ sd.used_count }} allocated hosts</summary>
+          <ul class="list-unstyled mt-2">
+            {% for host in sd.hosts %}
+            <li class="mb-1">
+              <code class="small">{{ host.address }}</code>
+              <span class="text-muted small">
+                {{ host.label }} -
+                <a href="{{ url_for('resources.detail', resource_id=host.resource_id) }}" class="text-decoration-none">
+                  {{ host.resource.name }}
+                </a>
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-hdd-network d-block"></i>
+  <h5>No subnets configured</h5>
+  <p class="text-muted">Add subnets to start tracking IP address usage.</p>
+</div>
+{% endif %}
+{% endblock %}

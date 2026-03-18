@@ -44,6 +44,23 @@
             {{ form.description(class="form-control", rows="3", placeholder="Optional description...") }}
           </div>
 
+          <!-- Tags -->
+          <div class="mb-3">
+            <label class="form-label">Tags</label>
+            <input type="text" name="tags" class="form-control"
+                   placeholder="Comma-separated tags, e.g. team-a, production, lab-1"
+                   value="{% if resource %}{{ resource.tags.all()|map(attribute='name')|join(', ') }}{% endif %}">
+            {% if all_tags is defined and all_tags %}
+            <small class="form-text text-muted">
+              Existing tags:
+              {% for tag in all_tags %}
+              <span class="badge" style="background-color: {{ tag.color }}; cursor: pointer;"
+                    onclick="addTag('{{ tag.name }}')">{{ tag.name }}</span>
+              {% endfor %}
+            </small>
+            {% endif %}
+          </div>
+
           <!-- Hosts section -->
           <div class="mb-4">
             <label class="form-label">Hosts</label>
@@ -134,5 +151,14 @@ document.addEventListener('DOMContentLoaded', function() {
     list.appendChild(createRow());
   }
 });
+
+function addTag(name) {
+  const input = document.querySelector('input[name="tags"]');
+  const current = input.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!current.includes(name)) {
+    current.push(name);
+    input.value = current.join(', ');
+  }
+}
 </script>
 {% endblock %}

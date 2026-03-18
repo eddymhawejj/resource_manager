@@ -1,0 +1,51 @@
+<div class="card resource-card h-100">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div class="d-flex align-items-center gap-2">
+        <span class="resource-type">{{ testbed.resource_type }}</span>
+        {% for tag in testbed.tags.all() %}
+        <span class="badge" style="background-color: {{ tag.color }}; font-size: 0.65rem;">{{ tag.name }}</span>
+        {% endfor %}
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <form method="POST" action="{{ url_for('resources.toggle_favorite', resource_id=testbed.id) }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm p-0 border-0" style="background:none;" title="{% if testbed.id in fav_ids %}Remove from favorites{% else %}Add to favorites{% endif %}">
+            <i class="bi bi-star{% if testbed.id in fav_ids %}-fill text-warning{% endif %}" style="font-size: 1rem;"></i>
+          </button>
+        </form>
+        <span hx-get="{{ url_for('monitoring.resource_status', resource_id=testbed.id) }}"
+              hx-trigger="load, every 30s"
+              hx-swap="innerHTML">
+          <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>...</span>
+        </span>
+      </div>
+    </div>
+    <h5 class="resource-name">
+      <a href="{{ url_for('resources.detail', resource_id=testbed.id) }}" class="text-decoration-none" style="color: var(--text-primary);">
+        {{ testbed.name }}
+      </a>
+    </h5>
+    {% if testbed.description %}
+    <p class="text-muted small mb-3">{{ testbed.description|truncate(100) }}</p>
+    {% endif %}
+    <div class="resource-meta">
+      {% set host_count = testbed.hosts.count() %}
+      {% if host_count %}
+      <span><i class="bi bi-hdd-network"></i>{{ host_count }} host{{ 's' if host_count != 1 }}</span>
+      {% endif %}
+      {% if testbed.location %}
+      <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>
+      {% endif %}
+      <span><i class="bi bi-diagram-3"></i>{{ testbed.children.count() }} children</span>
+    </div>
+  </div>
+  <div class="card-footer bg-transparent border-top d-flex justify-content-between align-items-center py-2">
+    <a href="{{ url_for('resources.detail', resource_id=testbed.id) }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-eye me-1"></i>Details
+    </a>
+    <a href="{{ url_for('bookings.create') }}?resource_id={{ testbed.id }}" class="btn btn-sm btn-outline-success">
+      <i class="bi bi-calendar-plus me-1"></i>Book
+    </a>
+  </div>
+</div>

@@ -1,9 +1,11 @@
-{% if resource.status == 'degraded' %}
+{% if in_maintenance is defined and in_maintenance %}
+  <span class="badge-status" style="background: rgba(255,193,7,0.12); color: var(--warning, #ffc107);"><i class="bi bi-tools me-1"></i>Maintenance</span>
+{% elif resource.status == 'degraded' %}
   <span class="badge-status badge-degraded"><span class="status-dot degraded"></span>Degraded</span>
 {% elif resource.is_reachable is none %}
   <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>Unknown</span>
 {% elif resource.is_reachable %}
-  <span class="badge-status badge-up"><span class="status-dot up"></span>Online{% if resource.latest_ping and resource.latest_ping.response_time_ms %} ({{ "%.0f"|format(resource.latest_ping.response_time_ms) }}ms){% endif %}</span>
+  <span class="badge-status badge-up"><span class="status-dot up"></span>Online</span>
 {% else %}
   <span class="badge-status badge-down"><span class="status-dot down"></span>Offline</span>
 {% endif %}

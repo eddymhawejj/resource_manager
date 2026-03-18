@@ -19,11 +19,19 @@
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-info-circle me-2"></i>Resource Details</span>
-        <span hx-get="{{ url_for('monitoring.resource_status', resource_id=resource.id) }}"
-              hx-trigger="load, every 30s"
-              hx-swap="innerHTML">
-          <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>Loading...</span>
-        </span>
+        <div class="d-flex align-items-center gap-2">
+          <form method="POST" action="{{ url_for('resources.toggle_favorite', resource_id=resource.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm p-0 border-0" style="background:none;" title="{% if is_favorited %}Remove from favorites{% else %}Add to favorites{% endif %}">
+              <i class="bi bi-star{% if is_favorited %}-fill text-warning{% endif %}" style="font-size: 1.1rem;"></i>
+            </button>
+          </form>
+          <span hx-get="{{ url_for('monitoring.resource_status', resource_id=resource.id) }}"
+                hx-trigger="load, every 30s"
+                hx-swap="innerHTML">
+            <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>Loading...</span>
+          </span>
+        </div>
       </div>
       <div class="card-body">
         <div class="row">
@@ -45,6 +53,16 @@
               {% endif %}
             </div>
           </div>
+          <div class="col-sm-6 mb-3">
+            <label class="form-label text-muted small mb-0">Tags</label>
+            <div>
+              {% for tag in resource.tags.all() %}
+              <span class="badge" style="background-color: {{ tag.color }};">{{ tag.name }}</span>
+              {% else %}
+              <span class="text-muted small">No tags</span>
+              {% endfor %}
+            </div>
+          </div>
           {% if resource.description %}
           <div class="col-12 mb-3">
             <label class="form-label text-muted small mb-0">Description</label>
@@ -58,6 +76,9 @@
         <a href="{{ url_for('resources.edit_resource', resource_id=resource.id) }}" class="btn btn-sm btn-outline-primary">
           <i class="bi bi-pencil me-1"></i>Edit
         </a>
+        <a href="{{ url_for('monitoring.health_history', resource_id=resource.id) }}" class="btn btn-sm btn-outline-info">
+          <i class="bi bi-graph-up me-1"></i>Health History
+        </a>
         <form method="POST" action="{{ url_for('resources.delete_resource', resource_id=resource.id) }}"
               onsubmit="return confirm('Are you sure you want to delete this resource?')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -65,6 +86,12 @@
             <i class="bi bi-trash me-1"></i>Delete
           </button>
         </form>
+      </div>
+      {% else %}
+      <div class="card-footer bg-transparent">
+        <a href="{{ url_for('monitoring.health_history', resource_id=resource.id) }}" class="btn btn-sm btn-outline-info">
+          <i class="bi bi-graph-up me-1"></i>Health History
+        </a>
       </div>
       {% endif %}
     </div>
@@ -186,6 +213,161 @@
     </div>
   </div>
 </div>
+
+<!-- Maintenance Windows -->
+{% if current_user.is_admin or active_maintenance %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-tools me-2"></i>Maintenance Windows</span>
+  </div>
+  <div class="card-body">
+    {% if active_maintenance %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr><th>Title</th><th>Start</th><th>End</th><th>Status</th>{% if current_user.is_admin %}<th></th>{% endif %}</tr>
+        </thead>
+        <tbody>
+          {% for mw in active_maintenance %}
+          <tr>
+            <td>{{ mw.title }}</td>
+            <td><small>{{ mw.start_time.strftime('%Y-%m-%d %H:%M') }}</small></td>
+            <td><small>{{ mw.end_time.strftime('%Y-%m-%d %H:%M') }}</small></td>
+            <td>
+              {% if mw.is_active %}
+                <span class="badge bg-warning">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Scheduled</span>
+              {% endif %}
+            </td>
+            {% if current_user.is_admin %}
+            <td>
+              <form method="POST" action="{{ url_for('resources.delete_maintenance', resource_id=resource.id, mw_id=mw.id) }}"
+                    class="d-inline" onsubmit="return confirm('Remove this maintenance window?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-3">No upcoming maintenance windows.</p>
+    {% endif %}
+
+    {% if current_user.is_admin %}
+    <form method="POST" action="{{ url_for('resources.add_maintenance', resource_id=resource.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3">
+        <label class="form-label small">Title</label>
+        <input type="text" name="maint_title" class="form-control form-control-sm" placeholder="Scheduled maintenance" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Start</label>
+        <input type="datetime-local" name="maint_start" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">End</label>
+        <input type="datetime-local" name="maint_end" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Notes</label>
+        <input type="text" name="maint_notes" class="form-control form-control-sm" placeholder="Optional">
+      </div>
+      <div class="col-md-1">
+        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg"></i></button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Alert Rules -->
+{% if current_user.is_admin %}
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-bell me-2"></i>Alert Rules</div>
+  <div class="card-body">
+    {% if alert_rules %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr><th>Type</th><th>Target</th><th>Last Triggered</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for rule in alert_rules %}
+          <tr>
+            <td><span class="badge bg-{% if rule.alert_type == 'email' %}primary{% elif rule.alert_type == 'webhook' %}info{% else %}secondary{% endif %}">{{ rule.alert_type }}</span></td>
+            <td><small>{{ rule.target }}</small></td>
+            <td><small class="text-muted">{{ rule.last_triggered.strftime('%Y-%m-%d %H:%M') if rule.last_triggered else 'Never' }}</small></td>
+            <td>
+              <form method="POST" action="{{ url_for('resources.delete_alert', resource_id=resource.id, rule_id=rule.id) }}"
+                    class="d-inline" onsubmit="return confirm('Remove this alert rule?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-3">No alert rules configured. Add one to get notified when hosts go offline.</p>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('resources.add_alert', resource_id=resource.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3">
+        <label class="form-label small">Type</label>
+        <select name="alert_type" class="form-select form-select-sm">
+          <option value="email">Email</option>
+          <option value="webhook">Webhook</option>
+        </select>
+      </div>
+      <div class="col-md-7">
+        <label class="form-label small">Target (email or URL)</label>
+        <input type="text" name="alert_target" class="form-control form-control-sm" placeholder="user@example.com or https://..." required>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- Waitlist -->
+{% if resource.is_testbed %}
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-clock-history me-2"></i>Join Waitlist</div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">Can't find an available slot? Join the waitlist and we'll notify you when the resource becomes available.</p>
+    <form method="POST" action="{{ url_for('bookings.add_to_waitlist') }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="resource_id" value="{{ resource.id }}">
+      <div class="col-md-4">
+        <label class="form-label small">Desired Start</label>
+        <input type="datetime-local" name="desired_start" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">Desired End</label>
+        <input type="datetime-local" name="desired_end" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">Notes</label>
+        <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+      </div>
+      <div class="col-md-1">
+        <button type="submit" class="btn btn-sm btn-warning w-100" title="Join waitlist"><i class="bi bi-plus-lg"></i></button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <!-- Child Resources -->
 {% if resource.is_testbed %}

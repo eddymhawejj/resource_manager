@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Usage Analytics - {{ app_name }}{% endblock %}
+{% block page_title %}Usage Analytics{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">Resource utilization and booking statistics</p>
+  <div class="btn-group btn-group-sm">
+    <a href="?days=7" class="btn btn-{% if days == 7 %}primary{% else %}outline-primary{% endif %}">7d</a>
+    <a href="?days=30" class="btn btn-{% if days == 30 %}primary{% else %}outline-primary{% endif %}">30d</a>
+    <a href="?days=90" class="btn btn-{% if days == 90 %}primary{% else %}outline-primary{% endif %}">90d</a>
+  </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value">{{ total_bookings }}</div>
+      <div class="stat-label">Total Bookings ({{ days }}d)</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value">{{ total_users }}</div>
+      <div class="stat-label">Active Users</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="stat-value">{{ resource_stats|length }}</div>
+      <div class="stat-label">Resources Tracked</div>
+    </div>
+  </div>
+</div>
+
+<!-- Per-Resource Utilization -->
+{% if resource_stats %}
+<div class="card">
+  <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Resource Utilization</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Resource</th>
+          <th>Utilization</th>
+          <th>Booked Hours</th>
+          <th>Bookings</th>
+          <th>Unique Users</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stat in resource_stats %}
+        <tr>
+          <td>
+            <a href="{{ url_for('resources.detail', resource_id=stat.resource.id) }}" class="text-decoration-none fw-medium">
+              {{ stat.resource.name }}
+            </a>
+          </td>
+          <td style="width: 30%;">
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-grow-1" style="height: 8px;">
+                <div class="progress-bar bg-{% if stat.utilization >= 80 %}danger{% elif stat.utilization >= 50 %}warning{% else %}success{% endif %}"
+                     style="width: {{ stat.utilization }}%"></div>
+              </div>
+              <small class="fw-medium" style="min-width: 40px;">{{ stat.utilization }}%</small>
+            </div>
+          </td>
+          <td>{{ stat.booked_hours }}h</td>
+          <td>{{ stat.booking_count }}</td>
+          <td>{{ stat.unique_users }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-bar-chart d-block"></i>
+  <h5>No usage data</h5>
+  <p class="text-muted">Book some resources to see utilization statistics.</p>
+</div>
+{% endif %}
+{% endblock %}

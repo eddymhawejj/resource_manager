@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Audit Log - {{ app_name }}{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">Track all actions across the system</p>
+  <div class="d-flex gap-2">
+    <select class="form-select form-select-sm" style="width: auto;" onchange="location.href='?action='+this.value">
+      <option value="">All Actions</option>
+      <option value="booking" {% if action_filter == 'booking' %}selected{% endif %}>Bookings</option>
+      <option value="resource" {% if action_filter == 'resource' %}selected{% endif %}>Resources</option>
+      <option value="maintenance" {% if action_filter == 'maintenance' %}selected{% endif %}>Maintenance</option>
+      <option value="alert" {% if action_filter == 'alert' %}selected{% endif %}>Alerts</option>
+      <option value="waitlist" {% if action_filter == 'waitlist' %}selected{% endif %}>Waitlist</option>
+    </select>
+  </div>
+</div>
+
+{% if entries %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td><small>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if entry.timestamp else '-' }}</small></td>
+          <td>{{ entry.user.display_name if entry.user else 'System' }}</td>
+          <td>
+            <span class="badge bg-{% if 'create' in entry.action %}success{% elif 'delete' in entry.action %}danger{% elif 'cancel' in entry.action %}warning{% else %}primary{% endif %}">
+              {{ entry.action }}
+            </span>
+          </td>
+          <td>
+            {% if entry.target_type %}
+              {{ entry.target_type }}{% if entry.target_id %} #{{ entry.target_id }}{% endif %}
+            {% else %}-{% endif %}
+          </td>
+          <td><small class="text-muted">{{ entry.details[:100] if entry.details else '-' }}</small></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if total_pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination justify-content-center">
+    {% for p in range(1, total_pages + 1) %}
+    <li class="page-item {% if p == page %}active{% endif %}">
+      <a class="page-link" href="?page={{ p }}&action={{ action_filter }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-journal-text d-block"></i>
+  <h5>No audit log entries</h5>
+  <p class="text-muted">Actions will appear here as users interact with the system.</p>
+</div>
+{% endif %}
+{% endblock %}

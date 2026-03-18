@@ -38,7 +38,7 @@ def ping_all_resources(app):
     """Background job: ping all hosts of active resources."""
     with app.app_context():
         from app.extensions import db
-        from app.models import Resource, ResourceHost, PingResult
+        from app.models import Resource, ResourceHost, PingResult, MaintenanceWindow
 
         hosts = (
             ResourceHost.query
@@ -53,9 +53,13 @@ def ping_all_resources(app):
 
         # Collect host IDs upfront, then ping outside the query context
         # to avoid holding a DB transaction open during slow ICMP pings
-        host_info = [(h.id, h.address) for h in hosts]
+        host_info = [(h.id, h.address, h.resource_id) for h in hosts]
 
-        for host_id, address in host_info:
+        for host_id, address, resource_id in host_info:
+            # Skip hosts whose resource is in maintenance
+            if MaintenanceWindow.resource_in_maintenance(resource_id):
+                continue
+
             is_reachable, response_time, resolved_ip = ping_host(address, timeout)
 
             ping_result = PingResult(
@@ -82,5 +86,12 @@ def ping_all_resources(app):
 
             # Commit per host to minimize lock duration
             db.session.commit()
+
+            # Check alert rules
+            try:
+                from app.monitoring.alert_service import check_and_send_alerts
+                check_and_send_alerts(app, host_id, is_reachable)
+            except Exception as e:
+                logger.error(f'Alert check failed for host {host_id}: {e}')
 
         logger.info(f'Pinged {len(host_info)} hosts')

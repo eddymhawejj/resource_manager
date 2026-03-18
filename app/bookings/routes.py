@@ -6,7 +6,7 @@ from flask_login import login_required, current_user
 from app.bookings import bp
 from app.bookings.forms import BookingForm
 from app.extensions import db
-from app.models import Resource, Booking
+from app.models import Resource, Booking, AuditLog, WaitlistEntry, MaintenanceWindow
 from app.email_service import send_booking_confirmation, send_booking_cancellation
 
 
@@ -114,10 +114,26 @@ def create():
             flash('This time slot conflicts with an existing booking.', 'danger')
             return render_template('bookings/form.html', form=form, title='Create Booking')
 
+        # Block booking during maintenance windows
+        if MaintenanceWindow.resource_in_maintenance(booking.resource_id):
+            flash('This resource is currently in a maintenance window and cannot be booked.', 'danger')
+            return render_template('bookings/form.html', form=form, title='Create Booking')
+
         db.session.add(booking)
+        AuditLog.log('booking.create', 'booking', None, {
+            'title': booking.title,
+            'resource_id': booking.resource_id,
+            'start': start_time.isoformat(),
+            'end': end_time.isoformat(),
+        }, user_id=current_user.id)
         db.session.commit()
 
         send_booking_confirmation(booking)
+        try:
+            from app.monitoring.alert_service import send_teams_booking_notification
+            send_teams_booking_notification(booking, 'created')
+        except Exception:
+            pass
         flash('Booking created successfully.', 'success')
         return redirect(url_for('bookings.list_bookings'))
 
@@ -132,8 +148,117 @@ def cancel(booking_id):
         abort(403)
 
     booking.status = 'cancelled'
+    AuditLog.log('booking.cancel', 'booking', booking.id, {
+        'title': booking.title,
+        'resource_id': booking.resource_id,
+    }, user_id=current_user.id)
     db.session.commit()
 
     send_booking_cancellation(booking)
+    try:
+        from app.monitoring.alert_service import send_teams_booking_notification
+        send_teams_booking_notification(booking, 'cancelled')
+    except Exception:
+        pass
+
+    # Notify waitlist entries for this resource/time slot
+    _notify_waitlist(booking)
+
     flash('Booking cancelled.', 'info')
     return redirect(url_for('bookings.list_bookings'))
+
+
+def _notify_waitlist(cancelled_booking):
+    """Notify waitlist entries that overlap with a cancelled booking's time slot."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    entries = WaitlistEntry.query.filter(
+        WaitlistEntry.resource_id == cancelled_booking.resource_id,
+        WaitlistEntry.status == 'waiting',
+        WaitlistEntry.desired_start < cancelled_booking.end_time,
+        WaitlistEntry.desired_end > cancelled_booking.start_time,
+    ).all()
+
+    for entry in entries:
+        entry.status = 'notified'
+        entry.notified_at = datetime.now()
+        # Try to send email notification
+        try:
+            from app.email_service import _is_smtp_configured, _update_mail_config
+            from flask_mail import Message
+            from app.extensions import mail
+            if _is_smtp_configured():
+                _update_mail_config()
+                msg = Message(
+                    subject=f'Waitlist: {cancelled_booking.resource.name} may be available',
+                    recipients=[entry.user.email],
+                )
+                msg.body = (
+                    f'A booking for {cancelled_booking.resource.name} has been cancelled.\n\n'
+                    f'The time slot {cancelled_booking.start_time.strftime("%Y-%m-%d %H:%M")} - '
+                    f'{cancelled_booking.end_time.strftime("%Y-%m-%d %H:%M")} may now be available.\n\n'
+                    f'Book it before someone else does!'
+                )
+                mail.send(msg)
+        except Exception as e:
+            logger.error(f'Failed to notify waitlist entry {entry.id}: {e}')
+
+    db.session.commit()
+
+
+@bp.route('/waitlist/add', methods=['POST'])
+@login_required
+def add_to_waitlist():
+    resource_id = request.form.get('resource_id', type=int)
+    desired_start = request.form.get('desired_start', '')
+    desired_end = request.form.get('desired_end', '')
+    notes = request.form.get('notes', '')
+
+    if not resource_id or not desired_start or not desired_end:
+        flash('Please fill in all required fields.', 'danger')
+        return redirect(url_for('bookings.calendar'))
+
+    try:
+        start_dt = datetime.fromisoformat(desired_start)
+        end_dt = datetime.fromisoformat(desired_end)
+    except ValueError:
+        flash('Invalid date format.', 'danger')
+        return redirect(url_for('bookings.calendar'))
+
+    entry = WaitlistEntry(
+        resource_id=resource_id,
+        user_id=current_user.id,
+        desired_start=start_dt,
+        desired_end=end_dt,
+        notes=notes,
+    )
+    db.session.add(entry)
+    AuditLog.log('waitlist.add', 'waitlist', None, {
+        'resource_id': resource_id,
+    }, user_id=current_user.id)
+    db.session.commit()
+    flash('Added to waitlist. You will be notified if the slot becomes available.', 'success')
+    return redirect(url_for('bookings.list_bookings'))
+
+
+@bp.route('/waitlist')
+@login_required
+def waitlist():
+    if current_user.is_admin:
+        entries = WaitlistEntry.query.order_by(WaitlistEntry.created_at.desc()).all()
+    else:
+        entries = WaitlistEntry.query.filter_by(user_id=current_user.id).order_by(WaitlistEntry.created_at.desc()).all()
+    return render_template('bookings/waitlist.html', entries=entries)
+
+
+@bp.route('/waitlist/<int:entry_id>/remove', methods=['POST'])
+@login_required
+def remove_from_waitlist(entry_id):
+    entry = db.session.get(WaitlistEntry, entry_id) or abort(404)
+    if entry.user_id != current_user.id and not current_user.is_admin:
+        abort(403)
+    db.session.delete(entry)
+    db.session.commit()
+    flash('Removed from waitlist.', 'info')
+    return redirect(url_for('bookings.waitlist'))

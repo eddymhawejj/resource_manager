@@ -1,13 +1,13 @@
 import os
 
-from flask import render_template, redirect, url_for, flash, abort, current_app
+from flask import render_template, redirect, url_for, flash, abort, current_app, request
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
 from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm, SwitchSettingsForm
 from app.extensions import db
-from app.models import User, Resource, Booking, AppSettings
+from app.models import User, Resource, Booking, AppSettings, AuditLog
 
 
 def admin_required(f):
@@ -159,9 +159,11 @@ def settings():
         switch_api_version=AppSettings.get('switch_api_version', 'v3'),
     )
 
+    teams_webhook_url = AppSettings.get('teams_webhook_url', '')
+
     return render_template('admin/settings.html',
                            smtp_form=smtp_form, ldap_form=ldap_form, logo_form=logo_form,
-                           switch_form=switch_form)
+                           switch_form=switch_form, teams_webhook_url=teams_webhook_url)
 
 
 @bp.route('/settings/smtp', methods=['POST'])
@@ -241,3 +243,34 @@ def save_switch():
     else:
         flash('Invalid switch settings.', 'danger')
     return redirect(url_for('admin.settings'))
+
+
+@bp.route('/settings/teams', methods=['POST'])
+@login_required
+@admin_required
+def save_teams():
+    teams_url = request.form.get('teams_webhook_url', '').strip()
+    AppSettings.set('teams_webhook_url', teams_url)
+    flash('Teams webhook settings saved.', 'success')
+    return redirect(url_for('admin.settings'))
+
+
+@bp.route('/audit-log')
+@login_required
+@admin_required
+def audit_log():
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
+    query = AuditLog.query.order_by(AuditLog.timestamp.desc())
+
+    action_filter = request.args.get('action', '')
+    if action_filter:
+        query = query.filter(AuditLog.action.like(f'{action_filter}%'))
+
+    total = query.count()
+    entries = query.offset((page - 1) * per_page).limit(per_page).all()
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template('admin/audit_log.html', entries=entries,
+                           page=page, total_pages=total_pages,
+                           action_filter=action_filter)

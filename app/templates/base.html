@@ -47,8 +47,28 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('network.overview') }}" class="{% if request.endpoint and 'network' in request.endpoint %}active{% endif %}">
+        <a href="{{ url_for('bookings.waitlist') }}" class="{% if request.endpoint and 'waitlist' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-clock-history"></i> Waitlist
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('monitoring.usage_analytics') }}" class="{% if request.endpoint and 'analytics' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-bar-chart"></i> Analytics
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('network.overview') }}" class="{% if request.endpoint and request.endpoint == 'network.overview' %}active{% endif %}">
           <i class="bi bi-diagram-2"></i> Network
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('network.ipam') }}" class="{% if request.endpoint and 'ipam' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-grid-3x3"></i> IPAM
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('network.topology') }}" class="{% if request.endpoint and 'topology' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-share"></i> Topology
         </a>
       </li>
 
@@ -67,6 +87,11 @@
       <li class="nav-item">
         <a href="{{ url_for('admin.settings') }}" class="{% if request.endpoint and 'admin.settings' in request.endpoint or request.endpoint and 'admin.save' in request.endpoint %}active{% endif %}">
           <i class="bi bi-gear"></i> Settings
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('admin.audit_log') }}" class="{% if request.endpoint and 'audit_log' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-journal-text"></i> Audit Log
         </a>
       </li>
       {% endif %}

@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timezone
 
 from flask import render_template, redirect, url_for, flash, abort, request
 from flask_login import login_required, current_user
@@ -6,7 +7,7 @@ from flask_login import login_required, current_user
 from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
-from app.models import Resource, ResourceHost
+from app.models import Resource, ResourceHost, AuditLog, Tag, Favorite, MaintenanceWindow, AlertRule
 
 
 def _is_valid_host(value):
@@ -91,10 +92,22 @@ def admin_required(f):
 @bp.route('/')
 @login_required
 def list_resources():
-    testbeds = Resource.query.filter_by(parent_id=None).filter(
+    tag_filter = request.args.get('tag', '')
+    query = Resource.query.filter_by(parent_id=None).filter(
         Resource.resource_type != 'device'
-    ).order_by(Resource.name).all()
-    return render_template('resources/list.html', testbeds=testbeds)
+    )
+    if tag_filter:
+        query = query.filter(Resource.tags.any(Tag.name == tag_filter))
+    testbeds = query.order_by(Resource.name).all()
+    all_tags = Tag.query.order_by(Tag.name).all()
+
+    # Get user's favorite resource IDs
+    fav_ids = set()
+    if current_user.is_authenticated:
+        fav_ids = {f.resource_id for f in Favorite.query.filter_by(user_id=current_user.id).all()}
+
+    return render_template('resources/list.html', testbeds=testbeds, all_tags=all_tags,
+                           current_tag=tag_filter, fav_ids=fav_ids)
 
 
 @bp.route('/<int:resource_id>')
@@ -103,8 +116,17 @@ def detail(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
     children = Resource.query.filter_by(parent_id=resource_id).order_by(Resource.name).all()
     host_form = HostForm()
+    is_favorited = Favorite.query.filter_by(user_id=current_user.id, resource_id=resource_id).first() is not None
+    active_maintenance = MaintenanceWindow.query.filter(
+        MaintenanceWindow.resource_id == resource_id,
+        MaintenanceWindow.end_time >= datetime.now(timezone.utc),
+    ).order_by(MaintenanceWindow.start_time).all()
+    alert_rules = AlertRule.query.filter_by(resource_id=resource_id).all()
+    all_tags = Tag.query.order_by(Tag.name).all()
     return render_template('resources/detail.html', resource=resource, children=children,
-                           host_form=host_form)
+                           host_form=host_form, is_favorited=is_favorited,
+                           active_maintenance=active_maintenance,
+                           alert_rules=alert_rules, all_tags=all_tags)
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -123,10 +145,14 @@ def add_resource():
         db.session.add(resource)
         db.session.flush()
         _sync_hosts_from_form(resource)
+        # Handle tags
+        tag_names = request.form.get('tags', '').split(',')
+        _sync_tags(resource, tag_names)
+        AuditLog.log('resource.create', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Testbed "{resource.name}" created.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
-    return render_template('resources/form.html', form=form, title='Add Testbed')
+    return render_template('resources/form.html', form=form, title='Add Testbed', all_tags=Tag.query.order_by(Tag.name).all())
 
 
 @bp.route('/<int:resource_id>/edit', methods=['GET', 'POST'])
@@ -138,11 +164,14 @@ def edit_resource(resource_id):
     if form.validate_on_submit():
         form.populate_obj(resource)
         _sync_hosts_from_form(resource)
+        tag_names = request.form.get('tags', '').split(',')
+        _sync_tags(resource, tag_names)
+        AuditLog.log('resource.update', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Resource "{resource.name}" updated.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
     return render_template('resources/form.html', form=form, title=f'Edit {resource.name}',
-                           resource=resource)
+                           resource=resource, all_tags=Tag.query.order_by(Tag.name).all())
 
 
 @bp.route('/<int:resource_id>/delete', methods=['POST'])
@@ -153,6 +182,7 @@ def delete_resource(resource_id):
     parent_id = resource.parent_id
     name = resource.name
 
+    AuditLog.log('resource.delete', 'resource', resource_id, {'name': name}, user_id=current_user.id)
     db.session.delete(resource)
     db.session.commit()
     flash(f'Resource "{name}" deleted.', 'success')
@@ -227,3 +257,158 @@ def delete_host(resource_id, host_id):
     db.session.commit()
     flash(f'Host "{address}" removed.', 'success')
     return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+def _sync_tags(resource, tag_names):
+    """Sync tags for a resource from a list of tag name strings."""
+    resource.tags = []
+    for name in tag_names:
+        name = name.strip()
+        if not name:
+            continue
+        tag = Tag.query.filter_by(name=name).first()
+        if not tag:
+            tag = Tag(name=name)
+            db.session.add(tag)
+            db.session.flush()
+        resource.tags.append(tag)
+
+
+# ===== Favorites =====
+@bp.route('/<int:resource_id>/favorite', methods=['POST'])
+@login_required
+def toggle_favorite(resource_id):
+    db.session.get(Resource, resource_id) or abort(404)
+    existing = Favorite.query.filter_by(user_id=current_user.id, resource_id=resource_id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        flash('Removed from favorites.', 'info')
+    else:
+        fav = Favorite(user_id=current_user.id, resource_id=resource_id)
+        db.session.add(fav)
+        db.session.commit()
+        flash('Added to favorites.', 'success')
+    return redirect(request.referrer or url_for('resources.list_resources'))
+
+
+# ===== Maintenance Windows =====
+@bp.route('/<int:resource_id>/maintenance/add', methods=['POST'])
+@login_required
+@admin_required
+def add_maintenance(resource_id):
+    db.session.get(Resource, resource_id) or abort(404)
+    title = request.form.get('maint_title', '').strip()
+    start = request.form.get('maint_start', '')
+    end = request.form.get('maint_end', '')
+    notes = request.form.get('maint_notes', '')
+
+    if not title or not start or not end:
+        flash('Title, start and end are required.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+    except ValueError:
+        flash('Invalid date format.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    mw = MaintenanceWindow(
+        resource_id=resource_id,
+        title=title,
+        start_time=start_dt,
+        end_time=end_dt,
+        notes=notes,
+        created_by=current_user.id,
+    )
+    db.session.add(mw)
+    AuditLog.log('maintenance.create', 'maintenance', None, {'resource_id': resource_id, 'title': title}, user_id=current_user.id)
+    db.session.commit()
+    flash(f'Maintenance window "{title}" created.', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/maintenance/<int:mw_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_maintenance(resource_id, mw_id):
+    mw = db.session.get(MaintenanceWindow, mw_id) or abort(404)
+    if mw.resource_id != resource_id:
+        abort(404)
+    db.session.delete(mw)
+    AuditLog.log('maintenance.delete', 'maintenance', mw_id, {'resource_id': resource_id}, user_id=current_user.id)
+    db.session.commit()
+    flash('Maintenance window removed.', 'info')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+# ===== Alert Rules =====
+@bp.route('/<int:resource_id>/alerts/add', methods=['POST'])
+@login_required
+@admin_required
+def add_alert(resource_id):
+    db.session.get(Resource, resource_id) or abort(404)
+    alert_type = request.form.get('alert_type', 'email')
+    target = request.form.get('alert_target', '').strip()
+
+    if not target:
+        flash('Alert target is required.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    rule = AlertRule(
+        resource_id=resource_id,
+        alert_type=alert_type,
+        target=target,
+        created_by=current_user.id,
+    )
+    db.session.add(rule)
+    AuditLog.log('alert.create', 'alert', None, {'resource_id': resource_id, 'type': alert_type}, user_id=current_user.id)
+    db.session.commit()
+    flash(f'Alert rule added ({alert_type}: {target}).', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/alerts/<int:rule_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_alert(resource_id, rule_id):
+    rule = db.session.get(AlertRule, rule_id) or abort(404)
+    if rule.resource_id != resource_id:
+        abort(404)
+    db.session.delete(rule)
+    db.session.commit()
+    flash('Alert rule removed.', 'info')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+# ===== Tags Management =====
+@bp.route('/tags/manage', methods=['POST'])
+@login_required
+@admin_required
+def manage_tags():
+    """Create a new tag."""
+    name = request.form.get('tag_name', '').strip()
+    color = request.form.get('tag_color', '#6c757d').strip()
+    if not name:
+        flash('Tag name is required.', 'danger')
+        return redirect(request.referrer or url_for('resources.list_resources'))
+    existing = Tag.query.filter_by(name=name).first()
+    if existing:
+        existing.color = color
+    else:
+        db.session.add(Tag(name=name, color=color))
+    db.session.commit()
+    flash(f'Tag "{name}" saved.', 'success')
+    return redirect(request.referrer or url_for('resources.list_resources'))
+
+
+@bp.route('/tags/<int:tag_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_tag(tag_id):
+    tag = db.session.get(Tag, tag_id) or abort(404)
+    db.session.delete(tag)
+    db.session.commit()
+    flash(f'Tag deleted.', 'info')
+    return redirect(request.referrer or url_for('resources.list_resources'))
