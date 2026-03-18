@@ -160,6 +160,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   box-shadow: var(--shadow);
+  color: var(--text-primary);
 }
 
 .card-header {
@@ -167,6 +168,11 @@ body {
   border-bottom: 1px solid var(--border-color);
   padding: 1rem 1.25rem;
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-body {
+  color: var(--text-primary);
 }
 
 /* ===== Status Badges ===== */
@@ -501,4 +507,171 @@ body {
 
 .ping-bar .ping-tick.down {
   background: var(--danger);
+}
+
+/* ===== Dark Mode Bootstrap Overrides ===== */
+[data-theme="dark"] .text-muted {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .small, [data-theme="dark"] small {
+  color: inherit;
+}
+
+[data-theme="dark"] .card-header,
+[data-theme="dark"] .card-body,
+[data-theme="dark"] .card-footer {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .fw-medium {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .table {
+  --bs-table-color: var(--text-primary);
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--border-color);
+  --bs-table-hover-bg: rgba(255, 255, 255, 0.04);
+  --bs-table-hover-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .table th,
+[data-theme="dark"] .table td {
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] code {
+  color: #e685b5;
+}
+
+[data-theme="dark"] .breadcrumb-item a {
+  color: var(--accent);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .badge.bg-info {
+  background-color: rgba(13, 202, 240, 0.15) !important;
+  color: #67d6ed !important;
+}
+
+[data-theme="dark"] .badge.bg-secondary {
+  background-color: rgba(108, 117, 125, 0.2) !important;
+  color: #9ca3af !important;
+}
+
+[data-theme="dark"] .badge.bg-success {
+  background-color: rgba(25, 135, 84, 0.2) !important;
+  color: #5dd39e !important;
+}
+
+[data-theme="dark"] .badge.bg-danger {
+  background-color: rgba(220, 53, 69, 0.2) !important;
+  color: #f07070 !important;
+}
+
+[data-theme="dark"] .badge.bg-primary {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+  color: #7ab3fa !important;
+}
+
+[data-theme="dark"] .badge.bg-warning {
+  background-color: rgba(255, 193, 7, 0.15) !important;
+  color: #f0c94b !important;
+}
+
+[data-theme="dark"] .btn-outline-primary {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+[data-theme="dark"] .btn-outline-secondary {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .btn-outline-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+[data-theme="dark"] .btn-outline-warning {
+  color: #f0c94b;
+  border-color: #f0c94b;
+}
+
+[data-theme="dark"] .btn-outline-success {
+  color: #5dd39e;
+  border-color: #5dd39e;
+}
+
+[data-theme="dark"] .dropdown-menu {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .dropdown-item {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dropdown-item:hover {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .alert-success {
+  background-color: rgba(25, 135, 84, 0.15);
+  color: #5dd39e;
+}
+
+[data-theme="dark"] .alert-danger {
+  background-color: rgba(220, 53, 69, 0.15);
+  color: #f07070;
+}
+
+[data-theme="dark"] .alert-warning {
+  background-color: rgba(255, 193, 7, 0.15);
+  color: #f0c94b;
+}
+
+[data-theme="dark"] .alert-info {
+  background-color: rgba(13, 202, 240, 0.15);
+  color: #67d6ed;
+}
+
+[data-theme="dark"] .form-check-input {
+  background-color: var(--bg-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .form-check-label {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .bg-transparent {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .d-none.d-md-inline,
+[data-theme="dark"] .d-md-inline {
+  color: inherit;
+}
+
+[data-theme="dark"] a:not(.btn):not(.nav-link):not(.sidebar-brand):not(.text-decoration-none) {
+  color: var(--accent);
+}
+
+[data-theme="dark"] .list-group-item {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
 }
