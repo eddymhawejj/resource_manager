@@ -85,6 +85,9 @@
               {% if host.label %}
                 <small class="text-muted ms-1">{{ host.label }}</small>
               {% endif %}
+              {% if not host.critical %}
+                <span class="badge bg-light text-muted border ms-1" title="Non-critical — does not affect resource status">info</span>
+              {% endif %}
               {% set ping = host.latest_ping %}
               {% if ping and ping.resolved_ip and ping.resolved_ip != host.address %}
                 <small class="text-muted">({{ ping.resolved_ip }})</small>
@@ -125,6 +128,12 @@
           </div>
           <div class="col">
             {{ host_form.label(class="form-control form-control-sm", placeholder="Label (optional)") }}
+          </div>
+          <div class="col-auto">
+            <div class="form-check form-check-inline mb-0">
+              {{ host_form.critical(class="form-check-input") }}
+              {{ host_form.critical.label(class="form-check-label small") }}
+            </div>
           </div>
           <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">

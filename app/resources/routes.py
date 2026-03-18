@@ -1,3 +1,5 @@
+import re
+
 from flask import render_template, redirect, url_for, flash, abort, request
 from flask_login import login_required, current_user
 
@@ -5,6 +7,72 @@ from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
 from app.models import Resource, ResourceHost
+
+
+def _is_valid_host(value):
+    """Check if a string is a valid IPv4 address or hostname."""
+    value = value.strip()
+    if not value:
+        return False
+    ipv4 = re.match(r'^(\d{1,3}\.){3}\d{1,3}$', value)
+    if ipv4:
+        return all(0 <= int(p) <= 255 for p in value.split('.'))
+    hostname_re = re.compile(r'^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*$')
+    return bool(hostname_re.match(value))
+
+
+def _sync_hosts_from_form(resource):
+    """Replace a resource's hosts with the data from the submitted form arrays."""
+    addresses = request.form.getlist('host_addresses[]')
+    labels = request.form.getlist('host_labels[]')
+    critical_values = request.form.getlist('host_critical[]')
+
+    # The critical checkboxes use a hidden+checkbox pattern:
+    # each host produces a hidden "0" and optionally a checked "1".
+    # Parse pairs: for each host, consume values until we build the list.
+    critical_flags = []
+    idx = 0
+    for i in range(len(addresses)):
+        # Each host has at least a hidden "0"
+        if idx < len(critical_values) and critical_values[idx] == '0':
+            idx += 1
+            # If next value is "1", the checkbox was checked
+            if idx < len(critical_values) and critical_values[idx] == '1':
+                critical_flags.append(True)
+                idx += 1
+            else:
+                critical_flags.append(False)
+        elif idx < len(critical_values) and critical_values[idx] == '1':
+            critical_flags.append(True)
+            idx += 1
+        else:
+            critical_flags.append(True)
+
+    # Delete existing hosts
+    for host in resource.hosts.all():
+        db.session.delete(host)
+
+    # Add new hosts (skip empty rows and invalid addresses)
+    errors = []
+    for i, addr in enumerate(addresses):
+        addr = addr.strip()
+        if not addr:
+            continue
+        if not _is_valid_host(addr):
+            errors.append(f'"{addr}" is not a valid IP address or hostname.')
+            continue
+        label = labels[i].strip() if i < len(labels) else ''
+        critical = critical_flags[i] if i < len(critical_flags) else True
+        host = ResourceHost(
+            resource_id=resource.id,
+            address=addr,
+            label=label,
+            critical=critical,
+        )
+        db.session.add(host)
+
+    for err in errors:
+        flash(err, 'danger')
 
 
 def admin_required(f):
@@ -50,6 +118,8 @@ def add_resource():
             is_active=form.is_active.data,
         )
         db.session.add(resource)
+        db.session.flush()
+        _sync_hosts_from_form(resource)
         db.session.commit()
         flash(f'Testbed "{resource.name}" created.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
@@ -64,6 +134,7 @@ def edit_resource(resource_id):
     form = ResourceForm(obj=resource)
     if form.validate_on_submit():
         form.populate_obj(resource)
+        _sync_hosts_from_form(resource)
         db.session.commit()
         flash(f'Resource "{resource.name}" updated.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
@@ -107,6 +178,8 @@ def add_child(testbed_id):
             parent_id=testbed_id,
         )
         db.session.add(child)
+        db.session.flush()
+        _sync_hosts_from_form(child)
         db.session.commit()
         flash(f'Child resource "{child.name}" added to {testbed.name}.', 'success')
         return redirect(url_for('resources.detail', resource_id=testbed_id))
@@ -125,6 +198,7 @@ def add_host(resource_id):
             resource_id=resource.id,
             address=form.address.data.strip(),
             label=form.label.data.strip() if form.label.data else '',
+            critical=form.critical.data,
         )
         db.session.add(host)
         db.session.commit()

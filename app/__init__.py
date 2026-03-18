@@ -110,7 +110,8 @@ def _auto_migrate(db):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 resource_id INTEGER NOT NULL REFERENCES resources(id),
                 address VARCHAR(255) NOT NULL,
-                label VARCHAR(100) NOT NULL DEFAULT ''
+                label VARCHAR(100) NOT NULL DEFAULT '',
+                critical BOOLEAN NOT NULL DEFAULT 1
             )
         '''))
         db.session.execute(sqlalchemy.text(
@@ -127,6 +128,15 @@ def _auto_migrate(db):
                 'INSERT INTO resource_hosts (resource_id, address, label) VALUES (:rid, :addr, :label)'
             ), {'rid': row[0], 'addr': row[1], 'label': ''})
         if rows:
+            db.session.commit()
+
+    # Add critical column to resource_hosts if missing
+    if 'resource_hosts' in inspector.get_table_names():
+        rh_columns = [c['name'] for c in inspector.get_columns('resource_hosts')]
+        if 'critical' not in rh_columns:
+            db.session.execute(sqlalchemy.text(
+                'ALTER TABLE resource_hosts ADD COLUMN critical BOOLEAN NOT NULL DEFAULT 1'
+            ))
             db.session.commit()
 
     # Migrate ping_results: add host_id, relax resource_id NOT NULL

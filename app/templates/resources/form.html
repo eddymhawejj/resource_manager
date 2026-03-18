@@ -44,19 +44,95 @@
             {{ form.description(class="form-control", rows="3", placeholder="Optional description...") }}
           </div>
 
+          <!-- Hosts section -->
+          <div class="mb-4">
+            <label class="form-label">Hosts</label>
+            <div id="hosts-list">
+              {% if resource %}
+                {% for host in resource.hosts.all() %}
+                <div class="row g-2 mb-2 host-row">
+                  <div class="col">
+                    <input type="text" name="host_addresses[]" class="form-control form-control-sm"
+                           placeholder="IP or hostname" value="{{ host.address }}">
+                  </div>
+                  <div class="col">
+                    <input type="text" name="host_labels[]" class="form-control form-control-sm"
+                           placeholder="Label (optional)" value="{{ host.label }}">
+                  </div>
+                  <div class="col-auto d-flex align-items-center">
+                    <div class="form-check form-check-inline mb-0" title="Mark as critical — affects overall resource status when down">
+                      <input type="hidden" name="host_critical[]" value="0">
+                      <input type="checkbox" name="host_critical[]" class="form-check-input" value="1"
+                             {{ 'checked' if host.critical }}>
+                      <label class="form-check-label small">Critical</label>
+                    </div>
+                  </div>
+                  <div class="col-auto">
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-host"><i class="bi bi-x-lg"></i></button>
+                  </div>
+                </div>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <button type="button" id="add-host-btn" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-plus-lg me-1"></i>Add Host
+            </button>
+            <small class="text-muted d-block mt-1">Hosts marked as <strong>Critical</strong> affect the resource's overall status when unreachable. Non-critical hosts are informational only.</small>
+          </div>
+
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-check-lg me-1"></i>Save
             </button>
             <a href="{{ url_for('resources.list_resources') }}" class="btn btn-outline-secondary">Cancel</a>
           </div>
-
-          {% if not resource %}
-          <small class="text-muted d-block mt-3">You can add hosts (IP addresses / hostnames) after creating the resource.</small>
-          {% endif %}
         </form>
       </div>
     </div>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const list = document.getElementById('hosts-list');
+  const addBtn = document.getElementById('add-host-btn');
+
+  function createRow() {
+    const row = document.createElement('div');
+    row.className = 'row g-2 mb-2 host-row';
+    row.innerHTML = `
+      <div class="col">
+        <input type="text" name="host_addresses[]" class="form-control form-control-sm" placeholder="IP or hostname">
+      </div>
+      <div class="col">
+        <input type="text" name="host_labels[]" class="form-control form-control-sm" placeholder="Label (optional)">
+      </div>
+      <div class="col-auto d-flex align-items-center">
+        <div class="form-check form-check-inline mb-0" title="Mark as critical">
+          <input type="hidden" name="host_critical[]" value="0">
+          <input type="checkbox" name="host_critical[]" class="form-check-input" value="1" checked>
+          <label class="form-check-label small">Critical</label>
+        </div>
+      </div>
+      <div class="col-auto">
+        <button type="button" class="btn btn-sm btn-outline-danger remove-host"><i class="bi bi-x-lg"></i></button>
+      </div>`;
+    return row;
+  }
+
+  addBtn.addEventListener('click', function() {
+    list.appendChild(createRow());
+  });
+
+  list.addEventListener('click', function(e) {
+    const btn = e.target.closest('.remove-host');
+    if (btn) btn.closest('.host-row').remove();
+  });
+
+  // Start with one empty row if no hosts exist
+  if (list.children.length === 0) {
+    list.appendChild(createRow());
+  }
+});
+</script>
 {% endblock %}

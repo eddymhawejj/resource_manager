@@ -58,3 +58,4 @@ class ChildResourceForm(FlaskForm):
 class HostForm(FlaskForm):
     address = StringField('Address', validators=[DataRequired(), Length(max=255), validate_host])
     label = StringField('Label', validators=[Optional(), Length(max=100)])
+    critical = BooleanField('Critical', default=True)

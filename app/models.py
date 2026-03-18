@@ -78,25 +78,35 @@ class Resource(db.Model):
 
     @property
     def status(self):
-        """Return 'online', 'offline', 'degraded', or 'unknown'."""
-        # If resource has hosts, aggregate their ping results
+        """Return 'online', 'offline', 'degraded', or 'unknown'.
+
+        Only hosts marked as critical affect the overall status.
+        Non-critical hosts are informational and don't trigger degraded.
+        """
         host_list = self.hosts.all()
         if host_list:
-            statuses = []
+            # Only critical hosts determine the resource status
+            critical_statuses = []
             for host in host_list:
+                if not host.critical:
+                    continue
                 ping = host.latest_ping
                 if ping is None:
-                    statuses.append('unknown')
+                    critical_statuses.append('unknown')
                 elif ping.is_reachable:
-                    statuses.append('online')
+                    critical_statuses.append('online')
                 else:
-                    statuses.append('offline')
+                    critical_statuses.append('offline')
 
-            if all(s == 'online' for s in statuses):
+            # If no critical hosts, treat as unknown (informational-only hosts)
+            if not critical_statuses:
+                return 'unknown'
+
+            if all(s == 'online' for s in critical_statuses):
                 return 'online'
-            if all(s == 'offline' for s in statuses):
+            if all(s == 'offline' for s in critical_statuses):
                 return 'offline'
-            if any(s == 'offline' or s == 'degraded' for s in statuses):
+            if any(s == 'offline' or s == 'degraded' for s in critical_statuses):
                 return 'degraded'
             return 'unknown'
 
@@ -134,6 +144,7 @@ class ResourceHost(db.Model):
     resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
     address = db.Column(db.String(255), nullable=False)
     label = db.Column(db.String(100), nullable=False, default='')
+    critical = db.Column(db.Boolean, nullable=False, default=True)
 
     ping_results = db.relationship('PingResult', backref='host', lazy='dynamic',
                                    order_by='PingResult.checked_at.desc()',
