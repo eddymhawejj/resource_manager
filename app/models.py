@@ -76,8 +76,8 @@ class Resource(db.Model):
                 return 'unknown'
             return 'online' if ping.is_reachable else 'offline'
 
-        # No IP: aggregate children statuses
-        child_list = self.children.all()
+        # No IP: aggregate active children statuses
+        child_list = [c for c in self.children.all() if c.is_active]
         if not child_list:
             return 'unknown'
 
