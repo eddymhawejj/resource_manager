@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from flask_login import UserMixin
@@ -169,7 +170,14 @@ class Booking(db.Model):
     end_time = db.Column(db.DateTime, nullable=False)
     notes = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default='confirmed')
+    calendar_uid = db.Column(db.String(64), nullable=True, unique=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def ensure_calendar_uid(self):
+        """Generate a stable calendar UID if not already set."""
+        if not self.calendar_uid:
+            self.calendar_uid = str(uuid.uuid4())
+        return self.calendar_uid
 
     def has_conflict(self):
         """Check if this booking conflicts with existing confirmed bookings."""

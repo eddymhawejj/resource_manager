@@ -139,6 +139,15 @@ def _auto_migrate(db):
             ))
             db.session.commit()
 
+    # Add calendar_uid to bookings if missing
+    if 'bookings' in tables:
+        booking_columns = [c['name'] for c in inspector.get_columns('bookings')]
+        if 'calendar_uid' not in booking_columns:
+            db.session.execute(sqlalchemy.text(
+                'ALTER TABLE bookings ADD COLUMN calendar_uid VARCHAR(64)'
+            ))
+            db.session.commit()
+
     # Migrate ping_results: add host_id, relax resource_id NOT NULL
     if 'ping_results' in tables:
         columns = [c['name'] for c in inspector.get_columns('ping_results')]
