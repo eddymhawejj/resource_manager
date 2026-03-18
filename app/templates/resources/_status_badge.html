@@ -1,4 +1,6 @@
-{% if resource.is_reachable is none %}
+{% if resource.status == 'degraded' %}
+  <span class="badge-status badge-degraded"><span class="status-dot degraded"></span>Degraded</span>
+{% elif resource.is_reachable is none %}
   <span class="badge-status badge-unknown"><span class="status-dot unknown"></span>Unknown</span>
 {% elif resource.is_reachable %}
   <span class="badge-status badge-up"><span class="status-dot up"></span>Online{% if resource.latest_ping and resource.latest_ping.response_time_ms %} ({{ "%.0f"|format(resource.latest_ping.response_time_ms) }}ms){% endif %}</span>

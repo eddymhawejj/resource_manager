@@ -212,6 +212,16 @@ body {
   color: var(--danger);
 }
 
+.status-dot.degraded {
+  background: var(--warning, #ffc107);
+  box-shadow: 0 0 6px rgba(255, 193, 7, 0.5);
+}
+
+.badge-degraded {
+  background: rgba(255, 193, 7, 0.12);
+  color: var(--warning, #ffc107);
+}
+
 .badge-unknown {
   background: rgba(108, 117, 125, 0.12);
   color: var(--text-secondary);

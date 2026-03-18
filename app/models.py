@@ -67,9 +67,38 @@ class Resource(db.Model):
         return self.ping_results.first()
 
     @property
+    def status(self):
+        """Return 'online', 'offline', 'degraded', or 'unknown'."""
+        # If resource has its own IP, use its ping result directly
+        if self.ip_address:
+            ping = self.latest_ping
+            if ping is None:
+                return 'unknown'
+            return 'online' if ping.is_reachable else 'offline'
+
+        # No IP: aggregate children statuses
+        child_list = self.children.all()
+        if not child_list:
+            return 'unknown'
+
+        statuses = [c.status for c in child_list]
+        if all(s == 'online' for s in statuses):
+            return 'online'
+        if all(s == 'offline' for s in statuses):
+            return 'offline'
+        if any(s == 'offline' or s == 'degraded' for s in statuses):
+            return 'degraded'
+        # All unknown
+        return 'unknown'
+
+    @property
     def is_reachable(self):
-        ping = self.latest_ping
-        return ping.is_reachable if ping else None
+        s = self.status
+        if s == 'online':
+            return True
+        if s == 'offline':
+            return False
+        return None
 
     def __repr__(self):
         return f'<Resource {self.name}>'
