@@ -10,7 +10,6 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,
-        'connect_args': {'timeout': 30},  # SQLite busy timeout (seconds)
     }
     MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2MB max upload
 

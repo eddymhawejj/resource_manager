@@ -171,13 +171,31 @@ def delete_subnet(subnet_id):
 @admin_required
 def relink_all():
     """Re-run auto-linking for all hosts against all subnets."""
+    import ipaddress as _ipaddress
+    from app.models import _resolve_to_ip
+
+    # 1. Read all data we need (quick read transaction)
+    hosts = [(h.id, h.address) for h in ResourceHost.query.all()]
+    subnets = [(s.id, _ipaddress.ip_network(s.cidr, strict=False)) for s in Subnet.query.all()]
+    db.session.expire_all()  # release any implicit locks
+
+    # 2. Resolve DNS and match subnets in memory (slow but no DB lock)
+    assignments = {}  # host_id -> subnet_id
+    for host_id, address in hosts:
+        ip = _resolve_to_ip(address)
+        if ip:
+            for subnet_id, network in subnets:
+                if ip in network:
+                    assignments[host_id] = subnet_id
+                    break
+
+    # 3. Apply all changes in one short transaction
     ResourceHost.query.update({'subnet_id': None})
-    db.session.flush()
-    count = 0
-    for subnet in Subnet.query.all():
-        count += _auto_link_hosts_to_subnet(subnet)
+    for host_id, subnet_id in assignments.items():
+        ResourceHost.query.filter_by(id=host_id).update({'subnet_id': subnet_id})
     db.session.commit()
-    flash(f'Re-linked {count} hosts to their subnets.', 'success')
+
+    flash(f'Re-linked {len(assignments)} hosts to their subnets.', 'success')
     return redirect(url_for('network.overview'))
 
 
@@ -253,14 +271,19 @@ def _auto_link_hosts_to_subnet(subnet):
     """Link all unlinked hosts whose IP falls in this subnet. Returns count.
 
     Resolves hostnames via DNS so hosts added by name also get linked.
+    DNS resolution is done upfront to avoid holding a DB transaction open.
     """
     import ipaddress as _ipaddress
     from app.models import _resolve_to_ip
     network = _ipaddress.ip_network(subnet.cidr, strict=False)
+
+    # Snapshot unlinked hosts, then resolve DNS outside the ORM session
+    unlinked = [(h.id, h.address) for h in ResourceHost.query.filter_by(subnet_id=None).all()]
+
     count = 0
-    for host in ResourceHost.query.filter_by(subnet_id=None).all():
-        ip = _resolve_to_ip(host.address)
+    for host_id, address in unlinked:
+        ip = _resolve_to_ip(address)
         if ip and ip in network:
-            host.subnet_id = subnet.id
+            ResourceHost.query.filter_by(id=host_id).update({'subnet_id': subnet.id})
             count += 1
     return count
