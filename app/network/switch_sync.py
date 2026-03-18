@@ -67,17 +67,17 @@ class SwitchClient:
     def login(self):
         """Authenticate and store session cookie."""
         url = f'{self.base_url}/rest/v1/login-sessions'
+        payload = {'userName': self.username}
+        if self.password:
+            payload['password'] = self.password
         try:
-            r = self.session.post(url, json={
-                'userName': self.username,
-                'password': self.password,
-            }, timeout=10)
+            r = self.session.post(url, json=payload, timeout=10)
         except requests.exceptions.ConnectionError as e:
             raise SwitchAPIError(f'Cannot connect to switch at {self.base_url}: {e}')
         except requests.exceptions.Timeout:
             raise SwitchAPIError(f'Connection to switch timed out')
 
-        if r.status_code != 201 and r.status_code != 200:
+        if r.status_code not in (200, 201):
             raise SwitchAPIError(f'Login failed (HTTP {r.status_code}): {r.text}')
 
         data = r.json()
