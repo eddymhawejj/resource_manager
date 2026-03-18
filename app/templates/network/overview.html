@@ -14,6 +14,12 @@
         <i class="bi bi-cloud-download me-1"></i>Sync from Switch
       </button>
     </form>
+    <form method="POST" action="{{ url_for('network.discover_now') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-info" title="Discover devices via LLDP neighbors on the switch">
+        <i class="bi bi-search me-1"></i>Discover Hosts (LLDP)
+      </button>
+    </form>
     {% if last_sync %}
     <small class="text-muted" title="{{ last_sync }}">Last sync: {{ last_sync[:16]|replace('T', ' ') }}</small>
     {% endif %}

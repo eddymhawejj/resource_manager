@@ -17,7 +17,7 @@ import requests
 import urllib3
 
 from app.extensions import db
-from app.models import AppSettings, Vlan, Subnet, ResourceHost
+from app.models import AppSettings, Resource, Vlan, Subnet, ResourceHost
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,39 @@ class SwitchClient:
                 'status': entry.get('status', ''),
             })
         return vlans
+
+    def get_lldp_neighbors(self):
+        """Fetch LLDP remote device table.
+
+        Returns list of dicts: [{'local_port': str, 'system_name': str,
+                                  'chassis_id': str, 'port_id': str, 'port_description': str}, ...]
+        """
+        url = f'{self.api_base}/lldp/remote-device'
+        try:
+            r = self.session.get(url, timeout=10)
+            if r.status_code != 200:
+                logger.warning(f'Failed to fetch LLDP neighbors (HTTP {r.status_code})')
+                return []
+            return r.json().get('lldp_remote_device_element', [])
+        except Exception as e:
+            logger.warning(f'Could not fetch LLDP neighbors: {e}')
+            return []
+
+    def get_mac_table(self):
+        """Fetch MAC address table.
+
+        Returns list of dicts: [{'mac_address': str, 'port_id': str, 'vlan_id': int}, ...]
+        """
+        url = f'{self.api_base}/mac-table'
+        try:
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                logger.warning(f'Failed to fetch MAC table (HTTP {r.status_code})')
+                return []
+            return r.json().get('mac_table_entry_element', [])
+        except Exception as e:
+            logger.warning(f'Could not fetch MAC table: {e}')
+            return []
 
     def get_ip_addresses(self):
         """Fetch IP address interfaces (to discover subnets/gateways).
@@ -267,3 +300,136 @@ def sync_vlans_from_switch(app=None):
     finally:
         if app:
             ctx.pop()
+
+
+def discover_hosts_from_switch():
+    """Discover hosts via LLDP neighbors and MAC table cross-reference.
+
+    For each LLDP neighbor:
+      1. Use system_name as the resource name
+      2. Cross-reference local_port with MAC table to find the VLAN
+      3. Look up the VLAN's subnet in our DB
+      4. Create a Resource + ResourceHost, linked to the subnet
+
+    Returns a summary dict.
+    """
+    try:
+        cfg = _get_switch_config()
+        if not cfg['host'] or not cfg['username']:
+            return {'error': 'Switch not configured'}
+
+        client = SwitchClient(
+            host=cfg['host'],
+            username=cfg['username'],
+            password=cfg['password'],
+            use_ssl=cfg['use_ssl'],
+            verify_ssl=cfg['verify_ssl'],
+            api_version=cfg['api_version'],
+        )
+
+        client.login()
+        try:
+            lldp_neighbors = client.get_lldp_neighbors()
+            mac_entries = client.get_mac_table()
+        finally:
+            client.logout()
+
+        # Build port → VLAN(s) map from MAC table
+        # A port can carry multiple VLANs (trunk), so collect all
+        port_vlans = {}
+        for entry in mac_entries:
+            port = entry.get('port_id', '')
+            vlan_id = entry.get('vlan_id')
+            if port and vlan_id:
+                port_vlans.setdefault(port, set()).add(vlan_id)
+
+        # Deduplicate LLDP neighbors by system_name (same device can appear
+        # on multiple ports if stacked, or duplicate entries per port)
+        seen_names = {}
+        for neighbor in lldp_neighbors:
+            name = (neighbor.get('system_name') or '').strip()
+            if not name:
+                continue
+            port = neighbor.get('local_port', '')
+            # Keep first occurrence per name, or update if this port has VLAN info
+            if name not in seen_names:
+                seen_names[name] = {
+                    'system_name': name,
+                    'local_port': port,
+                    'chassis_id': neighbor.get('chassis_id', ''),
+                    'port_description': neighbor.get('port_description', ''),
+                }
+
+        created = 0
+        skipped = 0
+        linked = 0
+
+        for device in seen_names.values():
+            name = device['system_name']
+            port = device['local_port']
+
+            # Skip if a resource with this exact name already exists
+            existing = Resource.query.filter(
+                db.func.lower(Resource.name) == name.lower()
+            ).first()
+            if existing:
+                skipped += 1
+                continue
+
+            # Find VLAN for this port from MAC table
+            vlan_ids = port_vlans.get(port, set())
+
+            # Find matching DB VLAN + subnet
+            subnet = None
+            matched_vlan = None
+            for vlan_num in sorted(vlan_ids):
+                vlan = Vlan.query.filter_by(number=vlan_num).first()
+                if vlan:
+                    # Pick first subnet that exists for this VLAN
+                    s = vlan.subnets.first()
+                    if s:
+                        subnet = s
+                        matched_vlan = vlan
+                        break
+
+            # Create the resource
+            resource = Resource(
+                name=name,
+                description=f'Discovered via LLDP on port {port}',
+                resource_type='device',
+                is_active=True,
+            )
+            db.session.add(resource)
+            db.session.flush()
+
+            # Create a host entry using the system_name as hostname
+            host = ResourceHost(
+                resource_id=resource.id,
+                address=name,
+                label=f'Port {port}',
+                critical=True,
+                subnet_id=subnet.id if subnet else None,
+            )
+            db.session.add(host)
+            created += 1
+            if subnet:
+                linked += 1
+
+        AppSettings.set('switch_last_discovery', datetime.now(timezone.utc).isoformat())
+        db.session.commit()
+
+        summary = {
+            'devices_discovered': len(seen_names),
+            'resources_created': created,
+            'resources_skipped': skipped,
+            'resources_linked': linked,
+        }
+        logger.info(f'LLDP discovery complete: {summary}')
+        return summary
+
+    except SwitchAPIError as e:
+        logger.error(f'LLDP discovery failed: {e}')
+        return {'error': str(e)}
+    except Exception as e:
+        logger.error(f'LLDP discovery failed unexpectedly: {e}')
+        return {'error': str(e)}

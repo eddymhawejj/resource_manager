@@ -196,6 +196,26 @@ def sync_now():
     return redirect(url_for('network.overview'))
 
 
+@bp.route('/discover', methods=['POST'])
+@login_required
+@admin_required
+def discover_now():
+    """Trigger LLDP-based host discovery from the switch."""
+    from app.network.switch_sync import discover_hosts_from_switch
+    result = discover_hosts_from_switch()
+    if 'error' in result:
+        flash(f'Discovery failed: {result["error"]}', 'danger')
+    else:
+        flash(
+            f'Discovery complete: {result["resources_created"]} resources created, '
+            f'{result["resources_skipped"]} already existed, '
+            f'{result["resources_linked"]} linked to subnets '
+            f'({result["devices_discovered"]} LLDP devices found on switch).',
+            'success'
+        )
+    return redirect(url_for('network.overview'))
+
+
 def _auto_link_hosts_to_subnet(subnet):
     """Link all unlinked hosts whose IP falls in this subnet. Returns count.
 
