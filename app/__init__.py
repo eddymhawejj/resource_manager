@@ -267,6 +267,7 @@ def register_cli(app):
 def start_scheduler(app):
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.monitoring.ping_service import ping_all_resources
+    from app.network.switch_sync import sync_vlans_from_switch
 
     scheduler = BackgroundScheduler(daemon=True)
     interval = app.config.get('PING_INTERVAL_SECONDS', 60)
@@ -279,5 +280,16 @@ def start_scheduler(app):
         id='ping_monitor',
         replace_existing=True,
     )
+
+    # VLAN sync from switch every 24 hours
+    scheduler.add_job(
+        func=sync_vlans_from_switch,
+        trigger='interval',
+        hours=24,
+        args=[app],
+        id='switch_vlan_sync',
+        replace_existing=True,
+    )
+
     scheduler.start()
     app.scheduler = scheduler

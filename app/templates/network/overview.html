@@ -6,7 +6,18 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <p class="text-muted mb-0">VLANs, subnets, and host mapping across the lab</p>
   {% if current_user.is_admin %}
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center">
+    {% if switch_configured %}
+    <form method="POST" action="{{ url_for('network.sync_now') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-success" title="Pull VLANs and subnets from switch">
+        <i class="bi bi-cloud-download me-1"></i>Sync from Switch
+      </button>
+    </form>
+    {% if last_sync %}
+    <small class="text-muted" title="{{ last_sync }}">Last sync: {{ last_sync[:16]|replace('T', ' ') }}</small>
+    {% endif %}
+    {% endif %}
     <form method="POST" action="{{ url_for('network.relink_all') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm btn-outline-secondary" title="Re-scan all host IPs and link them to matching subnets">

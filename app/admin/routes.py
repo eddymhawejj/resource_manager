@@ -5,7 +5,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
-from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm
+from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm, SwitchSettingsForm
 from app.extensions import db
 from app.models import User, Resource, Booking, AppSettings
 
@@ -151,8 +151,16 @@ def settings():
         app_name=AppSettings.get('app_name', 'Resource Manager'),
     )
 
+    switch_form = SwitchSettingsForm(
+        switch_host=AppSettings.get('switch_host', ''),
+        switch_username=AppSettings.get('switch_username', ''),
+        switch_use_ssl=AppSettings.get('switch_use_ssl', 'true') == 'true',
+        switch_verify_ssl=AppSettings.get('switch_verify_ssl', 'false') == 'true',
+    )
+
     return render_template('admin/settings.html',
-                           smtp_form=smtp_form, ldap_form=ldap_form, logo_form=logo_form)
+                           smtp_form=smtp_form, ldap_form=ldap_form, logo_form=logo_form,
+                           switch_form=switch_form)
 
 
 @bp.route('/settings/smtp', methods=['POST'])
@@ -212,4 +220,22 @@ def save_branding():
             flash('Branding settings saved.', 'success')
     else:
         flash('Invalid branding settings.', 'danger')
+    return redirect(url_for('admin.settings'))
+
+
+@bp.route('/settings/switch', methods=['POST'])
+@login_required
+@admin_required
+def save_switch():
+    form = SwitchSettingsForm()
+    if form.validate_on_submit():
+        AppSettings.set('switch_host', form.switch_host.data or '')
+        AppSettings.set('switch_username', form.switch_username.data or '')
+        if form.switch_password.data:
+            AppSettings.set('switch_password', form.switch_password.data)
+        AppSettings.set('switch_use_ssl', 'true' if form.switch_use_ssl.data else 'false')
+        AppSettings.set('switch_verify_ssl', 'true' if form.switch_verify_ssl.data else 'false')
+        flash('Switch settings saved.', 'success')
+    else:
+        flash('Invalid switch settings.', 'danger')
     return redirect(url_for('admin.settings'))

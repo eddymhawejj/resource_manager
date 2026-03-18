@@ -59,3 +59,11 @@ class LogoUploadForm(FlaskForm):
         FileAllowed(['png', 'jpg', 'jpeg', 'svg', 'gif'], 'Images only!')
     ])
     app_name = StringField('Application Name', validators=[Optional(), Length(max=100)])
+
+
+class SwitchSettingsForm(FlaskForm):
+    switch_host = StringField('Switch Host/IP', validators=[Optional(), Length(max=200)])
+    switch_username = StringField('Username', validators=[Optional(), Length(max=100)])
+    switch_password = PasswordField('Password', validators=[Optional(), Length(max=200)])
+    switch_use_ssl = BooleanField('Use HTTPS', default=True)
+    switch_verify_ssl = BooleanField('Verify SSL Certificate', default=False)

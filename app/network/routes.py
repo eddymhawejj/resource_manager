@@ -1,10 +1,10 @@
-from flask import render_template, redirect, url_for, flash, abort
+from flask import render_template, redirect, url_for, flash, abort, jsonify
 from flask_login import login_required, current_user
 
 from app.network import bp
 from app.network.forms import VlanForm, SubnetForm
 from app.extensions import db
-from app.models import Vlan, Subnet, ResourceHost
+from app.models import Vlan, Subnet, ResourceHost, AppSettings
 
 
 def admin_required(f):
@@ -23,9 +23,12 @@ def admin_required(f):
 @login_required
 def overview():
     """Network overview: all VLANs with their subnets and linked hosts."""
+    from app.network.switch_sync import is_switch_configured
     vlans = Vlan.query.order_by(Vlan.number).all()
     unlinked_hosts = ResourceHost.query.filter_by(subnet_id=None).all()
-    return render_template('network/overview.html', vlans=vlans, unlinked_hosts=unlinked_hosts)
+    last_sync = AppSettings.get('switch_last_sync', '')
+    return render_template('network/overview.html', vlans=vlans, unlinked_hosts=unlinked_hosts,
+                           switch_configured=is_switch_configured(), last_sync=last_sync)
 
 
 @bp.route('/vlans/add', methods=['GET', 'POST'])
@@ -171,6 +174,25 @@ def relink_all():
         count += _auto_link_hosts_to_subnet(subnet)
     db.session.commit()
     flash(f'Re-linked {count} hosts to their subnets.', 'success')
+    return redirect(url_for('network.overview'))
+
+
+@bp.route('/sync', methods=['POST'])
+@login_required
+@admin_required
+def sync_now():
+    """Trigger an on-demand VLAN sync from the switch."""
+    from app.network.switch_sync import sync_vlans_from_switch
+    result = sync_vlans_from_switch()
+    if 'error' in result:
+        flash(f'Switch sync failed: {result["error"]}', 'danger')
+    else:
+        flash(
+            f'Switch sync complete: {result["vlans_created"]} VLANs created, '
+            f'{result["vlans_updated"]} updated, {result["subnets_created"]} subnets created '
+            f'(total {result["total_switch_vlans"]} VLANs on switch).',
+            'success'
+        )
     return redirect(url_for('network.overview'))
 
 
