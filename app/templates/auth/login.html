@@ -58,6 +58,8 @@
           {{ form.auth_type.label(class="form-label") }}
           {{ form.auth_type(class="form-select") }}
         </div>
+        {% else %}
+        <input type="hidden" name="auth_type" value="local">
         {% endif %}
 
         <div class="mb-3 form-check">
