@@ -74,6 +74,12 @@ def create_app(config_class=Config):
         from flask import redirect, url_for
         return redirect(url_for('resources.list_resources'))
 
+    # Enable WAL mode for SQLite (allows concurrent reads + writes)
+    with app.app_context():
+        if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
+            db.session.execute(db.text('PRAGMA journal_mode=WAL'))
+            db.session.commit()
+
     # Auto-migrate schema for new columns
     with app.app_context():
         _auto_migrate(db)

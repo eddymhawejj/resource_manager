@@ -8,6 +8,10 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-me')
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///resource_manager.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'connect_args': {'timeout': 30},  # SQLite busy timeout (seconds)
+    }
     MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2MB max upload
 
     # Mail

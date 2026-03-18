@@ -51,11 +51,15 @@ def ping_all_resources(app):
         timeout = app.config.get('PING_TIMEOUT_SECONDS', 2)
         history_limit = app.config.get('PING_HISTORY_LIMIT', 100)
 
-        for host in hosts:
-            is_reachable, response_time, resolved_ip = ping_host(host.address, timeout)
+        # Collect host IDs upfront, then ping outside the query context
+        # to avoid holding a DB transaction open during slow ICMP pings
+        host_info = [(h.id, h.address) for h in hosts]
+
+        for host_id, address in host_info:
+            is_reachable, response_time, resolved_ip = ping_host(address, timeout)
 
             ping_result = PingResult(
-                host_id=host.id,
+                host_id=host_id,
                 is_reachable=is_reachable,
                 response_time_ms=response_time,
                 resolved_ip=resolved_ip,
@@ -64,11 +68,11 @@ def ping_all_resources(app):
             db.session.add(ping_result)
 
             # Prune old results
-            count = PingResult.query.filter_by(host_id=host.id).count()
+            count = PingResult.query.filter_by(host_id=host_id).count()
             if count > history_limit:
                 old_results = (
                     PingResult.query
-                    .filter_by(host_id=host.id)
+                    .filter_by(host_id=host_id)
                     .order_by(PingResult.checked_at.asc())
                     .limit(count - history_limit)
                     .all()
@@ -76,5 +80,7 @@ def ping_all_resources(app):
                 for old in old_results:
                     db.session.delete(old)
 
-        db.session.commit()
-        logger.info(f'Pinged {len(hosts)} hosts')
+            # Commit per host to minimize lock duration
+            db.session.commit()
+
+        logger.info(f'Pinged {len(host_info)} hosts')
