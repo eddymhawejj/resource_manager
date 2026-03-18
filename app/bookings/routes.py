@@ -50,13 +50,18 @@ def events():
 
     colors = ['#0d6efd', '#198754', '#dc3545', '#ffc107', '#0dcaf0', '#6f42c1', '#fd7e14', '#20c997']
 
-    return jsonify([
-        {
+    events = []
+    for b in bookings:
+        # Detect all-day bookings (midnight to midnight)
+        is_all_day = (b.start_time.hour == 0 and b.start_time.minute == 0
+                      and b.end_time.hour == 0 and b.end_time.minute == 0)
+        event = {
             'id': b.id,
             'title': f'{b.title} ({b.resource.name})',
             'start': b.start_time.isoformat(),
             'end': b.end_time.isoformat(),
             'color': colors[b.resource_id % len(colors)],
+            'allDay': is_all_day,
             'extendedProps': {
                 'user': b.user.display_name,
                 'resource': b.resource.name,
@@ -64,8 +69,8 @@ def events():
                 'bookingId': b.id,
             },
         }
-        for b in bookings
-    ])
+        events.append(event)
+    return jsonify(events)
 
 
 @bp.route('/create', methods=['GET', 'POST'])
