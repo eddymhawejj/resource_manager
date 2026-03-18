@@ -78,12 +78,13 @@ def create_app(config_class=Config):
     if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
         from sqlalchemy import event
 
-        @event.listens_for(db.engine, 'connect')
-        def _set_sqlite_pragmas(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute('PRAGMA journal_mode=WAL')
-            cursor.execute('PRAGMA busy_timeout=30000')
-            cursor.close()
+        with app.app_context():
+            @event.listens_for(db.engine, 'connect')
+            def _set_sqlite_pragmas(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute('PRAGMA journal_mode=WAL')
+                cursor.execute('PRAGMA busy_timeout=30000')
+                cursor.close()
 
     # Auto-migrate schema for new columns
     with app.app_context():
