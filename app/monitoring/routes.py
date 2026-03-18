@@ -44,6 +44,7 @@ def dashboard():
     resources = (
         Resource.query
         .filter(Resource.is_active.is_(True))
+        .filter(Resource.resource_type != 'device')
         .filter(Resource.hosts.any())
         .order_by(Resource.name)
         .all()

@@ -44,6 +44,7 @@ def ping_all_resources(app):
             ResourceHost.query
             .join(Resource)
             .filter(Resource.is_active.is_(True))
+            .filter(Resource.resource_type != 'device')
             .all()
         )
 
