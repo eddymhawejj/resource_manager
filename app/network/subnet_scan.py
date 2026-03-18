@@ -100,7 +100,7 @@ def is_scan_running():
         return _scan_progress['running']
 
 
-def start_scan_background(app, subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024):
+def start_scan_background(app, subnet_id=None, max_workers=50, timeout=1, max_subnet_size=65534):
     """Launch a subnet scan in a background thread. Returns False if already running."""
     if is_scan_running():
         return False
@@ -130,7 +130,7 @@ def _run_scan(app, subnet_id, max_workers, timeout, max_subnet_size):
         _update_progress(phase='error', running=False, result={'error': str(e)})
 
 
-def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024):
+def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=65534):
     """Ping-sweep subnets to discover active hosts not already tracked.
 
     Args:

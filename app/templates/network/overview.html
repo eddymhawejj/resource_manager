@@ -26,8 +26,7 @@
     {% endif %}
     <form method="POST" action="{{ url_for('network.scan_subnets') }}" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-outline-warning" title="Ping-sweep all subnets to discover active hosts"
-              onclick="return confirm('This will ping all IPs in configured subnets. Continue?');">
+      <button type="submit" class="btn btn-sm btn-outline-warning" title="Ping-sweep all subnets to discover active hosts (runs in background)">
         <i class="bi bi-broadcast me-1"></i>Scan Subnets
       </button>
     </form>

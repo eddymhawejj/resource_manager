@@ -264,7 +264,7 @@ def scan_single_subnet(subnet_id):
     from app.network.subnet_scan import start_scan_background
     subnet = db.session.get(Subnet, subnet_id) or abort(404)
     started = start_scan_background(
-        current_app._get_current_object(), subnet_id=subnet_id, max_subnet_size=65534,
+        current_app._get_current_object(), subnet_id=subnet_id,
     )
     if not started:
         flash('A subnet scan is already running.', 'warning')
