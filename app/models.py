@@ -43,7 +43,7 @@ class Resource(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, default='')
-    ip_address = db.Column(db.String(45), nullable=True)
+    ip_address = db.Column(db.String(255), nullable=True)
     resource_type = db.Column(db.String(50), nullable=False, default='testbed')
     location = db.Column(db.String(100), default='')
     is_active = db.Column(db.Boolean, default=True)
@@ -139,6 +139,7 @@ class PingResult(db.Model):
     resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
     is_reachable = db.Column(db.Boolean, nullable=False)
     response_time_ms = db.Column(db.Float, nullable=True)
+    resolved_ip = db.Column(db.String(45), nullable=True)
     checked_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     def __repr__(self):

@@ -31,6 +31,7 @@ def ping_history(resource_id):
             'time': r.checked_at.isoformat(),
             'reachable': r.is_reachable,
             'response_time': r.response_time_ms,
+            'resolved_ip': r.resolved_ip,
         }
         for r in reversed(results)
     ])

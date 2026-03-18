@@ -32,8 +32,13 @@
             <div class="fw-medium">{{ resource.resource_type|title }}</div>
           </div>
           <div class="col-sm-6 mb-3">
-            <label class="form-label text-muted small mb-0">IP Address</label>
-            <div class="fw-medium">{{ resource.ip_address or 'N/A' }}</div>
+            <label class="form-label text-muted small mb-0">Host</label>
+            <div class="fw-medium">
+              {{ resource.ip_address or 'N/A' }}
+              {% if resource.ip_address and resource.latest_ping and resource.latest_ping.resolved_ip and resource.latest_ping.resolved_ip != resource.ip_address %}
+                <small class="text-muted">({{ resource.latest_ping.resolved_ip }})</small>
+              {% endif %}
+            </div>
           </div>
           <div class="col-sm-6 mb-3">
             <label class="form-label text-muted small mb-0">Location</label>
@@ -117,7 +122,7 @@
             <th>Status</th>
             <th>Name</th>
             <th>Type</th>
-            <th>IP Address</th>
+            <th>Host</th>
             <th>Location</th>
             {% if current_user.is_admin %}<th>Actions</th>{% endif %}
           </tr>
@@ -138,7 +143,12 @@
               </a>
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
-            <td><code>{{ child.ip_address or '-' }}</code></td>
+            <td>
+              <code>{{ child.ip_address or '-' }}</code>
+              {% if child.ip_address and child.latest_ping and child.latest_ping.resolved_ip and child.latest_ping.resolved_ip != child.ip_address %}
+                <small class="text-muted">({{ child.latest_ping.resolved_ip }})</small>
+              {% endif %}
+            </td>
             <td>{{ child.location or '-' }}</td>
             {% if current_user.is_admin %}
             <td>

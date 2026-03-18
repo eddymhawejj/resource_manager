@@ -3,7 +3,7 @@
 {% block page_title %}Monitoring Dashboard{% endblock %}
 
 {% block content %}
-<p class="text-muted mb-4">Live ICMP monitoring of all active resources with IP addresses</p>
+<p class="text-muted mb-4">Live ICMP monitoring of all active resources</p>
 
 {% if resources %}
 <div class="row g-4">
@@ -19,6 +19,9 @@
               </a>
             </h6>
             <code class="small">{{ resource.ip_address }}</code>
+            {% if resource.latest_ping and resource.latest_ping.resolved_ip and resource.latest_ping.resolved_ip != resource.ip_address %}
+              <small class="text-muted">({{ resource.latest_ping.resolved_ip }})</small>
+            {% endif %}
             {% if resource.parent %}
               <span class="text-muted small ms-2">
                 <i class="bi bi-arrow-return-right"></i> {{ resource.parent.name }}
@@ -55,7 +58,7 @@
 <div class="empty-state">
   <i class="bi bi-activity d-block"></i>
   <h5>No monitored resources</h5>
-  <p class="text-muted">Add resources with IP addresses to enable monitoring.</p>
+  <p class="text-muted">Add resources with a host or IP address to enable monitoring.</p>
 </div>
 {% endif %}
 {% endblock %}

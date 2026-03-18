@@ -6,26 +6,32 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
-def ping_host(ip_address, timeout=2):
-    """Ping a host and return (is_reachable, response_time_ms)."""
-    if not ip_address:
-        return False, None
+def ping_host(host, timeout=2):
+    """Ping a host (IP or hostname) and return (is_reachable, response_time_ms, resolved_ip)."""
+    if not host:
+        return False, None, None
 
     try:
         result = subprocess.run(
-            ['ping', '-c', '1', '-W', str(timeout), ip_address],
+            ['ping', '-c', '1', '-W', str(timeout), host],
             capture_output=True, text=True, timeout=timeout + 2,
         )
+
+        resolved_ip = None
+        # Extract resolved IP from ping output, e.g. "PING host (1.2.3.4)"
+        ip_match = re.search(r'PING\s+\S+\s+\((\d+\.\d+\.\d+\.\d+)\)', result.stdout)
+        if ip_match:
+            resolved_ip = ip_match.group(1)
 
         if result.returncode == 0:
             match = re.search(r'time[=<]([\d.]+)\s*ms', result.stdout)
             response_time = float(match.group(1)) if match else None
-            return True, response_time
-        return False, None
+            return True, response_time, resolved_ip
+        return False, None, resolved_ip
 
     except (subprocess.TimeoutExpired, OSError, Exception) as e:
-        logger.debug(f'Ping failed for {ip_address}: {e}')
-        return False, None
+        logger.debug(f'Ping failed for {host}: {e}')
+        return False, None, None
 
 
 def ping_all_resources(app):
@@ -44,12 +50,13 @@ def ping_all_resources(app):
         history_limit = app.config.get('PING_HISTORY_LIMIT', 100)
 
         for resource in resources:
-            is_reachable, response_time = ping_host(resource.ip_address, timeout)
+            is_reachable, response_time, resolved_ip = ping_host(resource.ip_address, timeout)
 
             ping_result = PingResult(
                 resource_id=resource.id,
                 is_reachable=is_reachable,
                 response_time_ms=response_time,
+                resolved_ip=resolved_ip,
                 checked_at=datetime.now(timezone.utc),
             )
             db.session.add(ping_result)
