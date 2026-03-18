@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Network Overview - {{ app_name }}{% endblock %}
+{% block page_title %}Network Overview{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">VLANs, subnets, and host mapping across the lab</p>
+  {% if current_user.is_admin %}
+  <div class="d-flex gap-2">
+    <form method="POST" action="{{ url_for('network.relink_all') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Re-scan all host IPs and link them to matching subnets">
+        <i class="bi bi-arrow-repeat me-1"></i>Re-link Hosts
+      </button>
+    </form>
+    <a href="{{ url_for('network.add_subnet') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Subnet
+    </a>
+    <a href="{{ url_for('network.add_vlan') }}" class="btn btn-sm btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add VLAN
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+{% if vlans %}
+<div class="row g-4">
+  {% for vlan in vlans %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <a href="{{ url_for('network.vlan_detail', vlan_id=vlan.id) }}" class="text-decoration-none fw-medium" style="color: var(--text-primary);">
+          <i class="bi bi-diagram-2 me-1"></i>VLAN {{ vlan.number }} - {{ vlan.name }}
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% set subnet_list = vlan.subnets.all() %}
+        {% if subnet_list %}
+        <ul class="list-group list-group-flush">
+          {% for subnet in subnet_list %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <code>{{ subnet.cidr }}</code>
+                {% if subnet.name %}
+                  <small class="text-muted ms-1">{{ subnet.name }}</small>
+                {% endif %}
+              </div>
+              <span class="badge bg-secondary">{{ subnet.host_count }} host{{ 's' if subnet.host_count != 1 }}</span>
+            </div>
+            {% if subnet.gateway %}
+            <small class="text-muted">GW: {{ subnet.gateway }}</small>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="p-3 text-center">
+          <small class="text-muted">No subnets defined</small>
+        </div>
+        {% endif %}
+      </div>
+      {% if vlan.description %}
+      <div class="card-footer bg-transparent">
+        <small class="text-muted">{{ vlan.description }}</small>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <i class="bi bi-diagram-2 d-block" style="font-size: 2.5rem;"></i>
+  <h5>No VLANs configured</h5>
+  <p class="text-muted">Add VLANs and subnets to map your lab network. Hosts will be auto-linked to matching subnets.</p>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('network.add_vlan') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Add First VLAN
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if unlinked_hosts %}
+<div class="card mt-4">
+  <div class="card-header">
+    <i class="bi bi-question-circle me-2"></i>Unlinked Hosts ({{ unlinked_hosts|length }})
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Address</th>
+            <th>Label</th>
+            <th>Resource</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for host in unlinked_hosts %}
+          <tr>
+            <td><code>{{ host.address }}</code></td>
+            <td>{{ host.label or '-' }}</td>
+            <td>
+              <a href="{{ url_for('resources.detail', resource_id=host.resource.id) }}" class="text-decoration-none">
+                {{ host.resource.name }}
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

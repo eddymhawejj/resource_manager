@@ -1,3 +1,4 @@
+import ipaddress
 import uuid
 from datetime import datetime, timezone
 
@@ -138,6 +139,66 @@ class Resource(db.Model):
         return f'<Resource {self.name}>'
 
 
+class Vlan(db.Model):
+    __tablename__ = 'vlans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    number = db.Column(db.Integer, nullable=False, unique=True)
+    name = db.Column(db.String(100), nullable=False, default='')
+    description = db.Column(db.Text, default='')
+
+    subnets = db.relationship('Subnet', backref='vlan', lazy='dynamic',
+                              order_by='Subnet.cidr',
+                              cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Vlan {self.number} {self.name}>'
+
+
+class Subnet(db.Model):
+    __tablename__ = 'subnets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vlan_id = db.Column(db.Integer, db.ForeignKey('vlans.id'), nullable=False, index=True)
+    cidr = db.Column(db.String(50), nullable=False, unique=True)
+    name = db.Column(db.String(100), nullable=False, default='')
+    gateway = db.Column(db.String(45), nullable=True)
+    description = db.Column(db.Text, default='')
+
+    hosts = db.relationship('ResourceHost', backref='subnet', lazy='dynamic')
+
+    @property
+    def network(self):
+        """Return an ipaddress.IPv4Network or IPv6Network object."""
+        return ipaddress.ip_network(self.cidr, strict=False)
+
+    @property
+    def host_count(self):
+        return self.hosts.count()
+
+    def contains(self, addr):
+        """Check if an IP address string falls within this subnet."""
+        try:
+            return ipaddress.ip_address(addr) in self.network
+        except ValueError:
+            return False
+
+    def __repr__(self):
+        return f'<Subnet {self.cidr}>'
+
+
+def find_subnet_for_address(addr):
+    """Find the matching Subnet for an IP address, or None."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return None
+    for subnet in Subnet.query.all():
+        if ip in subnet.network:
+            return subnet
+    return None
+
+
 class ResourceHost(db.Model):
     __tablename__ = 'resource_hosts'
 
@@ -146,10 +207,18 @@ class ResourceHost(db.Model):
     address = db.Column(db.String(255), nullable=False)
     label = db.Column(db.String(100), nullable=False, default='')
     critical = db.Column(db.Boolean, nullable=False, default=True)
+    subnet_id = db.Column(db.Integer, db.ForeignKey('subnets.id'), nullable=True, index=True)
 
     ping_results = db.relationship('PingResult', backref='host', lazy='dynamic',
                                    order_by='PingResult.checked_at.desc()',
                                    cascade='all, delete-orphan')
+
+    def auto_link_subnet(self):
+        """Auto-link this host to a matching subnet based on its IP address."""
+        self.subnet_id = None
+        subnet = find_subnet_for_address(self.address)
+        if subnet:
+            self.subnet_id = subnet.id
 
     @property
     def latest_ping(self):

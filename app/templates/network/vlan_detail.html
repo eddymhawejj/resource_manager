@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}VLAN {{ vlan.number }} - {{ app_name }}{% endblock %}
+{% block page_title %}VLAN {{ vlan.number }} - {{ vlan.name }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-4">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('network.overview') }}">Network</a></li>
+    <li class="breadcrumb-item active">VLAN {{ vlan.number }}</li>
+  </ol>
+</nav>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-diagram-2 me-2"></i>VLAN Details</span>
+        {% if current_user.is_admin %}
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('network.edit_vlan', vlan_id=vlan.id) }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </a>
+          <form method="POST" action="{{ url_for('network.delete_vlan', vlan_id=vlan.id) }}"
+                onsubmit="return confirm('Delete this VLAN and all its subnets?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash me-1"></i>Delete
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-sm-4 mb-3">
+            <label class="form-label text-muted small mb-0">VLAN ID</label>
+            <div class="fw-medium">{{ vlan.number }}</div>
+          </div>
+          <div class="col-sm-4 mb-3">
+            <label class="form-label text-muted small mb-0">Name</label>
+            <div class="fw-medium">{{ vlan.name }}</div>
+          </div>
+          <div class="col-sm-4 mb-3">
+            <label class="form-label text-muted small mb-0">Subnets</label>
+            <div class="fw-medium">{{ vlan.subnets.count() }}</div>
+          </div>
+          {% if vlan.description %}
+          <div class="col-12">
+            <label class="form-label text-muted small mb-0">Description</label>
+            <div>{{ vlan.description }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Summary</div>
+      <div class="card-body">
+        {% set all_subnets = vlan.subnets.all() %}
+        {% set total_hosts = namespace(count=0) %}
+        {% for s in all_subnets %}
+          {% set total_hosts.count = total_hosts.count + s.host_count %}
+        {% endfor %}
+        <div class="row text-center">
+          <div class="col-6">
+            <div class="fs-3 fw-bold" style="color: var(--accent);">{{ all_subnets|length }}</div>
+            <small class="text-muted">Subnets</small>
+          </div>
+          <div class="col-6">
+            <div class="fs-3 fw-bold" style="color: var(--accent);">{{ total_hosts.count }}</div>
+            <small class="text-muted">Linked Hosts</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Subnets -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-hdd-network me-2"></i>Subnets</span>
+    {% if current_user.is_admin %}
+    <a href="{{ url_for('network.add_subnet') }}" class="btn btn-sm btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Subnet
+    </a>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    {% set subnets = vlan.subnets.all() %}
+    {% if subnets %}
+    {% for subnet in subnets %}
+    <div class="border-bottom p-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+          <code class="fs-6">{{ subnet.cidr }}</code>
+          {% if subnet.name %}
+            <span class="ms-2 text-muted">{{ subnet.name }}</span>
+          {% endif %}
+          {% if subnet.gateway %}
+            <small class="text-muted ms-2">GW: {{ subnet.gateway }}</small>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-secondary">{{ subnet.host_count }} host{{ 's' if subnet.host_count != 1 }}</span>
+          {% if current_user.is_admin %}
+          <a href="{{ url_for('network.edit_subnet', subnet_id=subnet.id) }}" class="btn btn-sm btn-outline-primary py-0 px-1">
+            <i class="bi bi-pencil"></i>
+          </a>
+          <form method="POST" action="{{ url_for('network.delete_subnet', subnet_id=subnet.id) }}"
+                class="d-inline" onsubmit="return confirm('Delete this subnet?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% if subnet.description %}
+      <small class="text-muted d-block mb-2">{{ subnet.description }}</small>
+      {% endif %}
+      {% set hosts = subnet.hosts.all() %}
+      {% if hosts %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr><th>Address</th><th>Label</th><th>Resource</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {% for host in hosts %}
+            <tr>
+              <td><code>{{ host.address }}</code></td>
+              <td>{{ host.label or '-' }}</td>
+              <td>
+                <a href="{{ url_for('resources.detail', resource_id=host.resource.id) }}" class="text-decoration-none">
+                  {{ host.resource.name }}
+                </a>
+              </td>
+              <td>
+                {% set ping = host.latest_ping %}
+                {% if ping %}
+                  {% if ping.is_reachable %}
+                    <span class="status-dot up"></span> <small class="text-muted">{{ '%.0f ms'|format(ping.response_time_ms) if ping.response_time_ms else '' }}</small>
+                  {% else %}
+                    <span class="status-dot down"></span>
+                  {% endif %}
+                {% else %}
+                  <span class="status-dot unknown"></span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state py-4">
+      <i class="bi bi-hdd-network d-block" style="font-size: 2rem;"></i>
+      <p class="text-muted mb-0">No subnets in this VLAN yet</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

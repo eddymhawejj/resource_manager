@@ -49,6 +49,9 @@ def create_app(config_class=Config):
     from app.monitoring import bp as monitoring_bp
     app.register_blueprint(monitoring_bp)
 
+    from app.network import bp as network_bp
+    app.register_blueprint(network_bp)
+
     from app.admin import bp as admin_bp
     app.register_blueprint(admin_bp)
 
@@ -136,6 +139,44 @@ def _auto_migrate(db):
         if 'critical' not in rh_columns:
             db.session.execute(sqlalchemy.text(
                 'ALTER TABLE resource_hosts ADD COLUMN critical BOOLEAN NOT NULL DEFAULT 1'
+            ))
+            db.session.commit()
+
+    # Create vlans table if missing
+    if 'vlans' not in tables:
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE vlans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                number INTEGER NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL DEFAULT '',
+                description TEXT DEFAULT ''
+            )
+        '''))
+        db.session.commit()
+
+    # Create subnets table if missing
+    if 'subnets' not in tables:
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE subnets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vlan_id INTEGER NOT NULL REFERENCES vlans(id),
+                cidr VARCHAR(50) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL DEFAULT '',
+                gateway VARCHAR(45),
+                description TEXT DEFAULT ''
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_subnets_vlan_id ON subnets (vlan_id)'
+        ))
+        db.session.commit()
+
+    # Add subnet_id to resource_hosts if missing
+    if 'resource_hosts' in inspector.get_table_names():
+        rh_columns2 = [c['name'] for c in inspector.get_columns('resource_hosts')]
+        if 'subnet_id' not in rh_columns2:
+            db.session.execute(sqlalchemy.text(
+                'ALTER TABLE resource_hosts ADD COLUMN subnet_id INTEGER REFERENCES subnets(id)'
             ))
             db.session.commit()
 

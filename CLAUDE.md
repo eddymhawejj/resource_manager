@@ -17,12 +17,13 @@ app/
   __init__.py          # App factory, auto-migration, scheduler setup
   config.py            # Config from environment / .env
   extensions.py        # Flask extensions (db, migrate, login, mail, csrf)
-  models.py            # All models: User, Resource, ResourceHost, Booking, PingResult, AppSettings
+  models.py            # All models: User, Resource, ResourceHost, Vlan, Subnet, Booking, PingResult, AppSettings
   email_service.py     # Email sending with .ics calendar invites (Outlook sync)
   auth/                # Login, registration, LDAP auth
   resources/           # Resource CRUD, host management (multi-IP support)
   bookings/            # Booking CRUD, calendar view, conflict detection
   monitoring/          # ICMP ping service, dashboard, status badges
+  network/             # VLAN/subnet management, network overview, auto-linking
   admin/               # Admin panel, SMTP settings, branding
   templates/           # Jinja2 templates (base.html + per-module)
   static/              # CSS, JS, uploads
@@ -36,11 +37,14 @@ app/
 - **Booking emails** include `.ics` calendar attachments so Outlook/Google Calendar auto-create events. Cancellation emails send `METHOD:CANCEL` to remove events.
 - **APScheduler** runs ping monitoring in background (configurable interval).
 - **SMTP** can be configured via environment variables or runtime via admin panel (`AppSettings` table).
+- **VLAN/Subnet mapping**: `Vlan` → `Subnet` → `ResourceHost`. When a host IP is added, it auto-links to the matching subnet. Network overview page shows the full lab topology.
 
 ## Models
 
 - `Resource` — testbed (parent) or child resource. Status aggregated from hosts or children.
-- `ResourceHost` — IP/hostname for a resource. Has `address`, `label`, `critical` fields.
+- `ResourceHost` — IP/hostname for a resource. Has `address`, `label`, `critical`, `subnet_id` fields. Auto-links to matching subnet.
+- `Vlan` — VLAN definition with number (1-4094), name, description. Has many subnets.
+- `Subnet` — Network subnet in CIDR notation, belongs to a VLAN. Has gateway, name, description. Hosts auto-link by IP match.
 - `Booking` — time-slot reservation with `calendar_uid` for .ics event matching.
 - `PingResult` — ICMP ping result linked to a host.
 - `User` — local or LDAP auth, admin/user roles.

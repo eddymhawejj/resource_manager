@@ -46,6 +46,11 @@
           <i class="bi bi-bookmark-check"></i> My Bookings
         </a>
       </li>
+      <li class="nav-item">
+        <a href="{{ url_for('network.overview') }}" class="{% if request.endpoint and 'network' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-diagram-2"></i> Network
+        </a>
+      </li>
 
       {% if current_user.is_authenticated and current_user.is_admin %}
       <li class="nav-section">Administration</li>

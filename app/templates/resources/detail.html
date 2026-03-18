@@ -88,6 +88,13 @@
               {% if not host.critical %}
                 <span class="badge bg-light text-muted border ms-1" title="Non-critical — does not affect resource status">info</span>
               {% endif %}
+              {% if host.subnet %}
+                <a href="{{ url_for('network.vlan_detail', vlan_id=host.subnet.vlan.id) }}"
+                   class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 text-decoration-none ms-1"
+                   title="VLAN {{ host.subnet.vlan.number }} - {{ host.subnet.cidr }}">
+                  VLAN {{ host.subnet.vlan.number }}
+                </a>
+              {% endif %}
               {% set ping = host.latest_ping %}
               {% if ping and ping.resolved_ip and ping.resolved_ip != host.address %}
                 <small class="text-muted">({{ ping.resolved_ip }})</small>

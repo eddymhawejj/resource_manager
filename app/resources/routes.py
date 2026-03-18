@@ -69,6 +69,7 @@ def _sync_hosts_from_form(resource):
             label=label,
             critical=critical,
         )
+        host.auto_link_subnet()
         db.session.add(host)
 
     for err in errors:
@@ -200,6 +201,7 @@ def add_host(resource_id):
             label=form.label.data.strip() if form.label.data else '',
             critical=form.critical.data,
         )
+        host.auto_link_subnet()
         db.session.add(host)
         db.session.commit()
         flash(f'Host "{host.address}" added.', 'success')
