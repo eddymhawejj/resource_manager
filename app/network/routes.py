@@ -244,25 +244,14 @@ def discover_now():
 @login_required
 @admin_required
 def scan_subnets():
-    """Trigger a ping-sweep scan of all subnets to discover new hosts."""
-    from app.network.subnet_scan import scan_subnets as _scan
-    result = _scan()
-    if 'error' in result:
-        flash(f'Subnet scan failed: {result["error"]}', 'danger')
+    """Launch a background ping-sweep scan of all subnets."""
+    from flask import current_app
+    from app.network.subnet_scan import start_scan_background
+    started = start_scan_background(current_app._get_current_object())
+    if not started:
+        flash('A subnet scan is already running.', 'warning')
     else:
-        flash(
-            f'Subnet scan complete: {len(result["new_hosts"])} new hosts discovered, '
-            f'{result["known_hosts"]} already known, '
-            f'{result["unreachable"]} unreachable '
-            f'({result["total_scanned"]} IPs scanned across {result["subnets_scanned"]} subnets).',
-            'success'
-        )
-        if result.get('skipped_subnets'):
-            flash(
-                f'Skipped large subnets: {", ".join(result["skipped_subnets"])}. '
-                f'Scan individual subnets or increase max size.',
-                'warning'
-            )
+        flash('Subnet scan started. Progress is shown below.', 'info')
     return redirect(url_for('network.overview'))
 
 
@@ -270,19 +259,43 @@ def scan_subnets():
 @login_required
 @admin_required
 def scan_single_subnet(subnet_id):
-    """Trigger a ping-sweep scan of a specific subnet."""
-    from app.network.subnet_scan import scan_subnets as _scan
+    """Launch a background ping-sweep scan of a specific subnet."""
+    from flask import current_app
+    from app.network.subnet_scan import start_scan_background
     subnet = db.session.get(Subnet, subnet_id) or abort(404)
-    result = _scan(subnet_id=subnet_id, max_subnet_size=65534)
-    if 'error' in result:
-        flash(f'Subnet scan failed: {result["error"]}', 'danger')
+    started = start_scan_background(
+        current_app._get_current_object(), subnet_id=subnet_id, max_subnet_size=65534,
+    )
+    if not started:
+        flash('A subnet scan is already running.', 'warning')
     else:
-        flash(
-            f'Scan of {subnet.cidr} complete: {len(result["new_hosts"])} new hosts discovered, '
-            f'{result["known_hosts"]} already known, {result["unreachable"]} unreachable.',
-            'success'
-        )
-    return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
+        flash(f'Scanning {subnet.cidr} in background.', 'info')
+    return redirect(url_for('network.overview'))
+
+
+@bp.route('/scan/progress')
+@login_required
+@admin_required
+def scan_progress():
+    """HTMX endpoint: returns scan progress partial HTML."""
+    from app.network.subnet_scan import get_scan_progress
+    progress = get_scan_progress()
+
+    if not progress['running'] and progress['phase'] == '':
+        # No scan has been run
+        return ''
+
+    if progress['phase'] == 'done':
+        result = progress.get('result', {})
+        if 'error' in result:
+            return render_template('network/_scan_progress.html', progress=progress, error=result['error'])
+        return render_template('network/_scan_progress.html', progress=progress, result=result)
+
+    if progress['phase'] == 'error':
+        result = progress.get('result', {})
+        return render_template('network/_scan_progress.html', progress=progress, error=result.get('error', 'Unknown error'))
+
+    return render_template('network/_scan_progress.html', progress=progress)
 
 
 @bp.route('/devices/<int:resource_id>/promote', methods=['POST'])

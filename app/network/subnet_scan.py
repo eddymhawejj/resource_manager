@@ -2,10 +2,37 @@ import logging
 import re
 import socket
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+# In-memory scan progress, read by the progress endpoint
+_scan_progress = {
+    'running': False,
+    'phase': '',          # 'pinging', 'resolving', 'done', 'error'
+    'subnet': '',         # current subnet CIDR
+    'scanned': 0,         # IPs pinged so far
+    'total': 0,           # total IPs to ping
+    'found': 0,           # responding IPs found
+    'new_hosts': 0,       # resources created
+    'subnets_done': 0,
+    'subnets_total': 0,
+    'result': None,       # final summary dict when done
+}
+_scan_lock = threading.Lock()
+
+
+def get_scan_progress():
+    """Return a snapshot of current scan progress."""
+    with _scan_lock:
+        return dict(_scan_progress)
+
+
+def _update_progress(**kwargs):
+    with _scan_lock:
+        _scan_progress.update(kwargs)
 
 
 def resolve_hostname(ip, snmp_community='public', timeout=2):
@@ -68,6 +95,41 @@ def resolve_hostname(ip, snmp_community='public', timeout=2):
     return None
 
 
+def is_scan_running():
+    with _scan_lock:
+        return _scan_progress['running']
+
+
+def start_scan_background(app, subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024):
+    """Launch a subnet scan in a background thread. Returns False if already running."""
+    if is_scan_running():
+        return False
+
+    _update_progress(
+        running=True, phase='starting', subnet='', scanned=0, total=0,
+        found=0, new_hosts=0, subnets_done=0, subnets_total=0, result=None,
+    )
+
+    thread = threading.Thread(
+        target=_run_scan,
+        args=(app, subnet_id, max_workers, timeout, max_subnet_size),
+        daemon=True,
+    )
+    thread.start()
+    return True
+
+
+def _run_scan(app, subnet_id, max_workers, timeout, max_subnet_size):
+    """Background scan thread entry point."""
+    try:
+        with app.app_context():
+            result = scan_subnets(subnet_id, max_workers, timeout, max_subnet_size)
+            _update_progress(phase='done', running=False, result=result)
+    except Exception as e:
+        logger.error(f'Background subnet scan failed: {e}')
+        _update_progress(phase='error', running=False, result={'error': str(e)})
+
+
 def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024):
     """Ping-sweep subnets to discover active hosts not already tracked.
 
@@ -109,6 +171,8 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024
     skipped_subnets = []
     subnets_scanned = 0
 
+    # Pre-calculate total IPs across all subnets for progress tracking
+    all_targets = []  # list of (subnet, targets_list)
     for subnet in subnets:
         try:
             network = subnet.network
@@ -124,10 +188,7 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024
             skipped_subnets.append(f'{subnet.cidr} ({host_count} hosts)')
             continue
 
-        subnets_scanned += 1
         gateway_ip = subnet.gateway.strip() if subnet.gateway else None
-
-        # Collect IPs to scan (exclude known + gateway)
         targets = []
         for ip in network.hosts():
             ip_str = str(ip)
@@ -138,7 +199,22 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024
                 continue
             targets.append(ip_str)
 
-        total_scanned += len(targets)
+        if targets:
+            all_targets.append((subnet, targets))
+            total_scanned += len(targets)
+
+    total_subnets = len(all_targets)
+    _update_progress(
+        phase='pinging', total=total_scanned, scanned=0,
+        subnets_total=total_subnets, subnets_done=0,
+    )
+
+    scanned_so_far = 0
+    found_so_far = 0
+
+    for subnet, targets in all_targets:
+        subnets_scanned += 1
+        _update_progress(subnet=subnet.cidr)
 
         # Concurrent ping sweep
         responding_ips = []
@@ -146,14 +222,25 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024
             futures = {executor.submit(ping_host, ip, timeout): ip for ip in targets}
             for future in as_completed(futures):
                 ip_str = futures[future]
+                scanned_so_far += 1
                 try:
                     is_reachable, _, _ = future.result()
                     if is_reachable:
                         responding_ips.append(ip_str)
+                        found_so_far += 1
                     else:
                         unreachable_count += 1
                 except Exception:
                     unreachable_count += 1
+
+                # Update progress every 10 IPs to avoid excessive lock contention
+                if scanned_so_far % 10 == 0 or scanned_so_far == total_scanned:
+                    _update_progress(scanned=scanned_so_far, found=found_so_far)
+
+        _update_progress(
+            phase='resolving', subnet=subnet.cidr,
+            scanned=scanned_so_far, found=found_so_far,
+        )
 
         # Resolve hostnames and create resources for new discoveries
         for ip_str in responding_ips:
@@ -186,8 +273,13 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=1024
             known_addresses.add(ip_str)
             new_hosts.append(ip_str)
 
+        db.session.commit()
+        _update_progress(
+            phase='pinging', subnets_done=subnets_scanned,
+            new_hosts=len(new_hosts),
+        )
+
     AppSettings.set('subnet_last_scan', datetime.now(timezone.utc).isoformat())
-    db.session.commit()
 
     summary = {
         'new_hosts': new_hosts,

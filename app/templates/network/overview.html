@@ -50,6 +50,14 @@
   {% endif %}
 </div>
 
+<!-- Scan progress (HTMX polled) -->
+{% if current_user.is_admin %}
+<div hx-get="{{ url_for('network.scan_progress') }}"
+     hx-trigger="load"
+     hx-swap="innerHTML"
+     id="scan-progress-container"></div>
+{% endif %}
+
 <!-- Tabs -->
 <ul class="nav nav-tabs mb-4" role="tablist">
   <li class="nav-item" role="presentation">
