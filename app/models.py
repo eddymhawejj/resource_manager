@@ -187,11 +187,25 @@ class Subnet(db.Model):
         return f'<Subnet {self.cidr}>'
 
 
-def find_subnet_for_address(addr):
-    """Find the matching Subnet for an IP address, or None."""
+def _resolve_to_ip(addr):
+    """Try to parse addr as an IP; if it's a hostname, resolve via DNS."""
+    import socket
     try:
-        ip = ipaddress.ip_address(addr)
+        return ipaddress.ip_address(addr)
     except ValueError:
+        pass
+    # It's a hostname — try DNS resolution
+    try:
+        resolved = socket.gethostbyname(addr)
+        return ipaddress.ip_address(resolved)
+    except (socket.gaierror, ValueError):
+        return None
+
+
+def find_subnet_for_address(addr):
+    """Find the matching Subnet for an IP address or hostname, or None."""
+    ip = _resolve_to_ip(addr)
+    if not ip:
         return None
     for subnet in Subnet.query.all():
         if ip in subnet.network:

@@ -197,15 +197,17 @@ def sync_now():
 
 
 def _auto_link_hosts_to_subnet(subnet):
-    """Link all unlinked hosts whose IP falls in this subnet. Returns count."""
+    """Link all unlinked hosts whose IP falls in this subnet. Returns count.
+
+    Resolves hostnames via DNS so hosts added by name also get linked.
+    """
     import ipaddress as _ipaddress
+    from app.models import _resolve_to_ip
     network = _ipaddress.ip_network(subnet.cidr, strict=False)
     count = 0
     for host in ResourceHost.query.filter_by(subnet_id=None).all():
-        try:
-            if _ipaddress.ip_address(host.address) in network:
-                host.subnet_id = subnet.id
-                count += 1
-        except ValueError:
-            continue
+        ip = _resolve_to_ip(host.address)
+        if ip and ip in network:
+            host.subnet_id = subnet.id
+            count += 1
     return count
