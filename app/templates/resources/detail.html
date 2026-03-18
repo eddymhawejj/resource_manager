@@ -83,7 +83,7 @@
         <div class="ping-bar mb-2">
           {% for ping in pings|reverse %}
           <div class="ping-tick {{ 'up' if ping.is_reachable else 'down' }}"
-               style="height: {{ (ping.response_time_ms or 24)|min(24) }}px;"
+               style="height: {{ [ping.response_time_ms or 24, 24]|min }}px;"
                title="{{ ping.checked_at.strftime('%H:%M') }} - {{ '%.1f ms'|format(ping.response_time_ms) if ping.response_time_ms else 'Timeout' }}">
           </div>
           {% endfor %}
