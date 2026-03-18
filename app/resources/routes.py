@@ -79,8 +79,6 @@ def delete_resource(resource_id):
     parent_id = resource.parent_id
     name = resource.name
 
-    # Delete children first
-    Resource.query.filter_by(parent_id=resource_id).delete()
     db.session.delete(resource)
     db.session.commit()
     flash(f'Resource "{name}" deleted.', 'success')

@@ -50,10 +50,13 @@ class Resource(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     parent_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=True)
 
-    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='dynamic')
+    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='dynamic',
+                               cascade='all, delete-orphan')
     ping_results = db.relationship('PingResult', backref='resource', lazy='dynamic',
-                                   order_by='PingResult.checked_at.desc()')
-    bookings = db.relationship('Booking', backref='resource', lazy='dynamic')
+                                   order_by='PingResult.checked_at.desc()',
+                                   cascade='all, delete-orphan')
+    bookings = db.relationship('Booking', backref='resource', lazy='dynamic',
+                               cascade='all, delete-orphan')
 
     @property
     def is_testbed(self):
