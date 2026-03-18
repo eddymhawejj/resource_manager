@@ -27,7 +27,6 @@ def validate_host(form, field):
 class ResourceForm(FlaskForm):
     name = StringField('Name', validators=[DataRequired(), Length(max=100)])
     description = TextAreaField('Description', validators=[Optional()])
-    ip_address = StringField('Host', validators=[Optional(), Length(max=255), validate_host])
     resource_type = SelectField('Type', choices=[
         ('testbed', 'Testbed'),
         ('server', 'Server'),
@@ -43,7 +42,6 @@ class ResourceForm(FlaskForm):
 class ChildResourceForm(FlaskForm):
     name = StringField('Name', validators=[DataRequired(), Length(max=100)])
     description = TextAreaField('Description', validators=[Optional()])
-    ip_address = StringField('Host', validators=[Optional(), Length(max=255), validate_host])
     resource_type = SelectField('Type', choices=[
         ('server', 'Server'),
         ('switch', 'Switch'),
@@ -55,3 +53,8 @@ class ChildResourceForm(FlaskForm):
     ])
     location = StringField('Location', validators=[Optional(), Length(max=100)])
     is_active = BooleanField('Active', default=True)
+
+
+class HostForm(FlaskForm):
+    address = StringField('Address', validators=[DataRequired(), Length(max=255), validate_host])
+    label = StringField('Label', validators=[Optional(), Length(max=100)])

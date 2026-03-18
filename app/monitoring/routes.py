@@ -3,7 +3,7 @@ from flask_login import login_required
 
 from app.monitoring import bp
 from app.extensions import db
-from app.models import Resource, PingResult
+from app.models import Resource, ResourceHost, PingResult
 
 
 @bp.route('/status/<int:resource_id>')
@@ -14,14 +14,14 @@ def resource_status(resource_id):
     return render_template('resources/_status_badge.html', resource=resource)
 
 
-@bp.route('/history/<int:resource_id>')
+@bp.route('/history/<int:host_id>')
 @login_required
-def ping_history(resource_id):
-    """Return ping history as JSON for charts."""
-    resource = db.session.get(Resource, resource_id) or abort(404)
+def ping_history(host_id):
+    """Return ping history for a host as JSON for charts."""
+    host = db.session.get(ResourceHost, host_id) or abort(404)
     results = (
         PingResult.query
-        .filter_by(resource_id=resource_id)
+        .filter_by(host_id=host_id)
         .order_by(PingResult.checked_at.desc())
         .limit(50)
         .all()
@@ -41,9 +41,11 @@ def ping_history(resource_id):
 @login_required
 def dashboard():
     """Monitoring overview page."""
-    resources = Resource.query.filter(
-        Resource.ip_address.isnot(None),
-        Resource.ip_address != '',
-        Resource.is_active.is_(True),
-    ).order_by(Resource.name).all()
+    resources = (
+        Resource.query
+        .filter(Resource.is_active.is_(True))
+        .filter(Resource.hosts.any())
+        .order_by(Resource.name)
+        .all()
+    )
     return render_template('monitoring/dashboard.html', resources=resources)

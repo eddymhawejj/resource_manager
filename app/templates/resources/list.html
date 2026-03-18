@@ -37,8 +37,9 @@
         <p class="text-muted small mb-3">{{ testbed.description|truncate(100) }}</p>
         {% endif %}
         <div class="resource-meta">
-          {% if testbed.ip_address %}
-          <span><i class="bi bi-hdd-network"></i>{{ testbed.ip_address }}</span>
+          {% set host_count = testbed.hosts.count() %}
+          {% if host_count %}
+          <span><i class="bi bi-hdd-network"></i>{{ host_count }} host{{ 's' if host_count != 1 }}</span>
           {% endif %}
           {% if testbed.location %}
           <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>

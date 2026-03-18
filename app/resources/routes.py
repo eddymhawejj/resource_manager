@@ -1,10 +1,10 @@
-from flask import render_template, redirect, url_for, flash, abort
+from flask import render_template, redirect, url_for, flash, abort, request
 from flask_login import login_required, current_user
 
 from app.resources import bp
-from app.resources.forms import ResourceForm, ChildResourceForm
+from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
-from app.models import Resource
+from app.models import Resource, ResourceHost
 
 
 def admin_required(f):
@@ -31,7 +31,9 @@ def list_resources():
 def detail(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
     children = Resource.query.filter_by(parent_id=resource_id).order_by(Resource.name).all()
-    return render_template('resources/detail.html', resource=resource, children=children)
+    host_form = HostForm()
+    return render_template('resources/detail.html', resource=resource, children=children,
+                           host_form=host_form)
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -43,7 +45,6 @@ def add_resource():
         resource = Resource(
             name=form.name.data,
             description=form.description.data,
-            ip_address=form.ip_address.data or None,
             resource_type=form.resource_type.data,
             location=form.location.data,
             is_active=form.is_active.data,
@@ -63,7 +64,6 @@ def edit_resource(resource_id):
     form = ResourceForm(obj=resource)
     if form.validate_on_submit():
         form.populate_obj(resource)
-        resource.ip_address = form.ip_address.data or None
         db.session.commit()
         flash(f'Resource "{resource.name}" updated.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
@@ -101,7 +101,6 @@ def add_child(testbed_id):
         child = Resource(
             name=form.name.data,
             description=form.description.data,
-            ip_address=form.ip_address.data or None,
             resource_type=form.resource_type.data,
             location=form.location.data,
             is_active=form.is_active.data,
@@ -113,3 +112,40 @@ def add_child(testbed_id):
         return redirect(url_for('resources.detail', resource_id=testbed_id))
     return render_template('resources/form.html', form=form,
                            title=f'Add Child Resource to {testbed.name}', testbed=testbed)
+
+
+@bp.route('/<int:resource_id>/hosts/add', methods=['POST'])
+@login_required
+@admin_required
+def add_host(resource_id):
+    resource = db.session.get(Resource, resource_id) or abort(404)
+    form = HostForm()
+    if form.validate_on_submit():
+        host = ResourceHost(
+            resource_id=resource.id,
+            address=form.address.data.strip(),
+            label=form.label.data.strip() if form.label.data else '',
+        )
+        db.session.add(host)
+        db.session.commit()
+        flash(f'Host "{host.address}" added.', 'success')
+    else:
+        for field, errors in form.errors.items():
+            if field != 'csrf_token':
+                for error in errors:
+                    flash(f'{error}', 'danger')
+    return redirect(url_for('resources.detail', resource_id=resource.id))
+
+
+@bp.route('/<int:resource_id>/hosts/<int:host_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_host(resource_id, host_id):
+    host = db.session.get(ResourceHost, host_id) or abort(404)
+    if host.resource_id != resource_id:
+        abort(404)
+    address = host.address
+    db.session.delete(host)
+    db.session.commit()
+    flash(f'Host "{address}" removed.', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))

@@ -43,7 +43,7 @@ class Resource(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, default='')
-    ip_address = db.Column(db.String(255), nullable=True)
+    ip_address = db.Column(db.String(255), nullable=True)  # Legacy, kept for migration
     resource_type = db.Column(db.String(50), nullable=False, default='testbed')
     location = db.Column(db.String(100), default='')
     is_active = db.Column(db.Boolean, default=True)
@@ -52,9 +52,9 @@ class Resource(db.Model):
 
     children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='dynamic',
                                cascade='all, delete-orphan')
-    ping_results = db.relationship('PingResult', backref='resource', lazy='dynamic',
-                                   order_by='PingResult.checked_at.desc()',
-                                   cascade='all, delete-orphan')
+    hosts = db.relationship('ResourceHost', backref='resource', lazy='dynamic',
+                            order_by='ResourceHost.label',
+                            cascade='all, delete-orphan')
     bookings = db.relationship('Booking', backref='resource', lazy='dynamic',
                                cascade='all, delete-orphan')
 
@@ -63,20 +63,44 @@ class Resource(db.Model):
         return self.parent_id is None
 
     @property
-    def latest_ping(self):
-        return self.ping_results.first()
+    def host_statuses(self):
+        """Return list of (host, status) for all hosts."""
+        results = []
+        for host in self.hosts.all():
+            ping = host.latest_ping
+            if ping is None:
+                results.append((host, 'unknown'))
+            elif ping.is_reachable:
+                results.append((host, 'online'))
+            else:
+                results.append((host, 'offline'))
+        return results
 
     @property
     def status(self):
         """Return 'online', 'offline', 'degraded', or 'unknown'."""
-        # If resource has its own IP, use its ping result directly
-        if self.ip_address:
-            ping = self.latest_ping
-            if ping is None:
-                return 'unknown'
-            return 'online' if ping.is_reachable else 'offline'
+        # If resource has hosts, aggregate their ping results
+        host_list = self.hosts.all()
+        if host_list:
+            statuses = []
+            for host in host_list:
+                ping = host.latest_ping
+                if ping is None:
+                    statuses.append('unknown')
+                elif ping.is_reachable:
+                    statuses.append('online')
+                else:
+                    statuses.append('offline')
 
-        # No IP: aggregate active children statuses
+            if all(s == 'online' for s in statuses):
+                return 'online'
+            if all(s == 'offline' for s in statuses):
+                return 'offline'
+            if any(s == 'offline' or s == 'degraded' for s in statuses):
+                return 'degraded'
+            return 'unknown'
+
+        # No hosts: aggregate active children statuses
         child_list = [c for c in self.children.all() if c.is_active]
         if not child_list:
             return 'unknown'
@@ -88,7 +112,6 @@ class Resource(db.Model):
             return 'offline'
         if any(s == 'offline' or s == 'degraded' for s in statuses):
             return 'degraded'
-        # All unknown
         return 'unknown'
 
     @property
@@ -102,6 +125,26 @@ class Resource(db.Model):
 
     def __repr__(self):
         return f'<Resource {self.name}>'
+
+
+class ResourceHost(db.Model):
+    __tablename__ = 'resource_hosts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    address = db.Column(db.String(255), nullable=False)
+    label = db.Column(db.String(100), nullable=False, default='')
+
+    ping_results = db.relationship('PingResult', backref='host', lazy='dynamic',
+                                   order_by='PingResult.checked_at.desc()',
+                                   cascade='all, delete-orphan')
+
+    @property
+    def latest_ping(self):
+        return self.ping_results.first()
+
+    def __repr__(self):
+        return f'<ResourceHost {self.label or self.address}>'
 
 
 class Booking(db.Model):
@@ -136,7 +179,8 @@ class PingResult(db.Model):
     __tablename__ = 'ping_results'
 
     id = db.Column(db.Integer, primary_key=True)
-    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    host_id = db.Column(db.Integer, db.ForeignKey('resource_hosts.id'), nullable=True, index=True)
+    resource_id = db.Column(db.Integer, nullable=True, index=True)  # Legacy, kept for migration
     is_reachable = db.Column(db.Boolean, nullable=False)
     response_time_ms = db.Column(db.Float, nullable=True)
     resolved_ip = db.Column(db.String(45), nullable=True)

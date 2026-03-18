@@ -85,17 +85,91 @@ def create_app(config_class=Config):
 
 
 def _auto_migrate(db):
-    """Add missing columns to existing tables without requiring a full migration."""
+    """Add missing columns/tables to existing database without requiring a full migration."""
     import sqlalchemy
     inspector = sqlalchemy.inspect(db.engine)
+    tables = inspector.get_table_names()
+
+    # Skip if this is a fresh database (no tables yet)
+    if 'resources' not in tables:
+        return
 
     # Add resolved_ip to ping_results if missing
-    if 'ping_results' in inspector.get_table_names():
+    if 'ping_results' in tables:
         columns = [c['name'] for c in inspector.get_columns('ping_results')]
         if 'resolved_ip' not in columns:
             db.session.execute(sqlalchemy.text(
                 'ALTER TABLE ping_results ADD COLUMN resolved_ip VARCHAR(45)'
             ))
+            db.session.commit()
+
+    # Create resource_hosts table if missing
+    if 'resource_hosts' not in tables:
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE resource_hosts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                address VARCHAR(255) NOT NULL,
+                label VARCHAR(100) NOT NULL DEFAULT ''
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_resource_hosts_resource_id ON resource_hosts (resource_id)'
+        ))
+        db.session.commit()
+
+        # Migrate existing ip_address values into resource_hosts
+        rows = db.session.execute(sqlalchemy.text(
+            "SELECT id, ip_address FROM resources WHERE ip_address IS NOT NULL AND ip_address != ''"
+        )).fetchall()
+        for row in rows:
+            db.session.execute(sqlalchemy.text(
+                'INSERT INTO resource_hosts (resource_id, address, label) VALUES (:rid, :addr, :label)'
+            ), {'rid': row[0], 'addr': row[1], 'label': ''})
+        if rows:
+            db.session.commit()
+
+    # Migrate ping_results: add host_id, relax resource_id NOT NULL
+    if 'ping_results' in tables:
+        columns = [c['name'] for c in inspector.get_columns('ping_results')]
+        if 'host_id' not in columns:
+            # SQLite can't ALTER COLUMN, so recreate the table
+            db.session.execute(sqlalchemy.text('''
+                CREATE TABLE ping_results_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    host_id INTEGER REFERENCES resource_hosts(id),
+                    resource_id INTEGER,
+                    is_reachable BOOLEAN NOT NULL,
+                    response_time_ms FLOAT,
+                    resolved_ip VARCHAR(45),
+                    checked_at DATETIME
+                )
+            '''))
+            db.session.execute(sqlalchemy.text('''
+                INSERT INTO ping_results_new (id, resource_id, is_reachable, response_time_ms, resolved_ip, checked_at)
+                SELECT id, resource_id, is_reachable, response_time_ms, resolved_ip, checked_at
+                FROM ping_results
+            '''))
+            db.session.execute(sqlalchemy.text('DROP TABLE ping_results'))
+            db.session.execute(sqlalchemy.text('ALTER TABLE ping_results_new RENAME TO ping_results'))
+            db.session.execute(sqlalchemy.text(
+                'CREATE INDEX ix_ping_results_host_id ON ping_results (host_id)'
+            ))
+            db.session.execute(sqlalchemy.text(
+                'CREATE INDEX ix_ping_results_checked_at ON ping_results (checked_at)'
+            ))
+            db.session.commit()
+
+            # Migrate existing ping_results to link to their host
+            db.session.execute(sqlalchemy.text('''
+                UPDATE ping_results
+                SET host_id = (
+                    SELECT rh.id FROM resource_hosts rh
+                    WHERE rh.resource_id = ping_results.resource_id
+                    LIMIT 1
+                )
+                WHERE host_id IS NULL AND resource_id IS NOT NULL
+            '''))
             db.session.commit()
 
 

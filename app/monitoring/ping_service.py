@@ -35,25 +35,26 @@ def ping_host(host, timeout=2):
 
 
 def ping_all_resources(app):
-    """Background job: ping all active resources with IP addresses."""
+    """Background job: ping all hosts of active resources."""
     with app.app_context():
         from app.extensions import db
-        from app.models import Resource, PingResult
+        from app.models import Resource, ResourceHost, PingResult
 
-        resources = Resource.query.filter(
-            Resource.ip_address.isnot(None),
-            Resource.ip_address != '',
-            Resource.is_active.is_(True),
-        ).all()
+        hosts = (
+            ResourceHost.query
+            .join(Resource)
+            .filter(Resource.is_active.is_(True))
+            .all()
+        )
 
         timeout = app.config.get('PING_TIMEOUT_SECONDS', 2)
         history_limit = app.config.get('PING_HISTORY_LIMIT', 100)
 
-        for resource in resources:
-            is_reachable, response_time, resolved_ip = ping_host(resource.ip_address, timeout)
+        for host in hosts:
+            is_reachable, response_time, resolved_ip = ping_host(host.address, timeout)
 
             ping_result = PingResult(
-                resource_id=resource.id,
+                host_id=host.id,
                 is_reachable=is_reachable,
                 response_time_ms=response_time,
                 resolved_ip=resolved_ip,
@@ -62,11 +63,11 @@ def ping_all_resources(app):
             db.session.add(ping_result)
 
             # Prune old results
-            count = PingResult.query.filter_by(resource_id=resource.id).count()
+            count = PingResult.query.filter_by(host_id=host.id).count()
             if count > history_limit:
                 old_results = (
                     PingResult.query
-                    .filter_by(resource_id=resource.id)
+                    .filter_by(host_id=host.id)
                     .order_by(PingResult.checked_at.asc())
                     .limit(count - history_limit)
                     .all()
@@ -75,4 +76,4 @@ def ping_all_resources(app):
                     db.session.delete(old)
 
         db.session.commit()
-        logger.info(f'Pinged {len(resources)} resources')
+        logger.info(f'Pinged {len(hosts)} hosts')

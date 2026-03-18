@@ -32,15 +32,6 @@
             <div class="fw-medium">{{ resource.resource_type|title }}</div>
           </div>
           <div class="col-sm-6 mb-3">
-            <label class="form-label text-muted small mb-0">Host</label>
-            <div class="fw-medium">
-              {{ resource.ip_address or 'N/A' }}
-              {% if resource.ip_address and resource.latest_ping and resource.latest_ping.resolved_ip and resource.latest_ping.resolved_ip != resource.ip_address %}
-                <small class="text-muted">({{ resource.latest_ping.resolved_ip }})</small>
-              {% endif %}
-            </div>
-          </div>
-          <div class="col-sm-6 mb-3">
             <label class="form-label text-muted small mb-0">Location</label>
             <div class="fw-medium">{{ resource.location or 'N/A' }}</div>
           </div>
@@ -80,22 +71,100 @@
   </div>
 
   <div class="col-lg-4">
+    <!-- Hosts -->
+    <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts.count() }})</div>
+      <div class="card-body p-0">
+        {% set host_list = resource.hosts.all() %}
+        {% if host_list %}
+        <ul class="list-group list-group-flush">
+          {% for host in host_list %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <code>{{ host.address }}</code>
+              {% if host.label %}
+                <small class="text-muted ms-1">{{ host.label }}</small>
+              {% endif %}
+              {% set ping = host.latest_ping %}
+              {% if ping and ping.resolved_ip and ping.resolved_ip != host.address %}
+                <small class="text-muted">({{ ping.resolved_ip }})</small>
+              {% endif %}
+              {% if ping %}
+                {% if ping.is_reachable %}
+                  <span class="status-dot up ms-1"></span>
+                {% else %}
+                  <span class="status-dot down ms-1"></span>
+                {% endif %}
+              {% endif %}
+            </div>
+            {% if current_user.is_admin %}
+            <form method="POST"
+                  action="{{ url_for('resources.delete_host', resource_id=resource.id, host_id=host.id) }}"
+                  onsubmit="return confirm('Remove this host?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Remove">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="p-3 text-center">
+          <small class="text-muted">No hosts configured</small>
+        </div>
+        {% endif %}
+      </div>
+      {% if current_user.is_admin %}
+      <div class="card-footer bg-transparent">
+        <form method="POST" action="{{ url_for('resources.add_host', resource_id=resource.id) }}" class="row g-2 align-items-end">
+          {{ host_form.hidden_tag() }}
+          <div class="col">
+            {{ host_form.address(class="form-control form-control-sm", placeholder="IP or hostname") }}
+          </div>
+          <div class="col">
+            {{ host_form.label(class="form-control form-control-sm", placeholder="Label (optional)") }}
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Ping History -->
     <div class="card">
       <div class="card-header"><i class="bi bi-activity me-2"></i>Ping History</div>
       <div class="card-body">
-        {% set pings = resource.ping_results[:30]|list %}
-        {% if pings %}
-        <div class="ping-bar mb-2">
-          {% for ping in pings|reverse %}
-          <div class="ping-tick {{ 'up' if ping.is_reachable else 'down' }}"
-               style="height: {{ [ping.response_time_ms or 24, 24]|min }}px;"
-               title="{{ ping.checked_at.strftime('%H:%M') }} - {{ '%.1f ms'|format(ping.response_time_ms) if ping.response_time_ms else 'Timeout' }}">
+        {% set host_list = resource.hosts.all() %}
+        {% if host_list %}
+          {% for host in host_list %}
+          <div class="{% if not loop.first %}mt-3{% endif %}">
+            {% if host_list|length > 1 %}
+            <small class="text-muted fw-medium d-block mb-1">{{ host.label or host.address }}</small>
+            {% endif %}
+            {% set pings = host.ping_results[:30]|list %}
+            {% if pings %}
+            <div class="ping-bar mb-1">
+              {% for ping in pings|reverse %}
+              <div class="ping-tick {{ 'up' if ping.is_reachable else 'down' }}"
+                   style="height: {{ [ping.response_time_ms or 24, 24]|min }}px;"
+                   title="{{ ping.checked_at.strftime('%H:%M') }} - {{ '%.1f ms'|format(ping.response_time_ms) if ping.response_time_ms else 'Timeout' }}">
+              </div>
+              {% endfor %}
+            </div>
+            <small class="text-muted">Last {{ pings|length }} checks</small>
+            {% else %}
+            <small class="text-muted">No ping data yet</small>
+            {% endif %}
           </div>
           {% endfor %}
-        </div>
-        <small class="text-muted">Last {{ pings|length }} checks</small>
         {% else %}
-        <p class="text-muted mb-0 small">No ping data yet</p>
+        <p class="text-muted mb-0 small">Add hosts to enable monitoring</p>
         {% endif %}
       </div>
     </div>
@@ -122,7 +191,7 @@
             <th>Status</th>
             <th>Name</th>
             <th>Type</th>
-            <th>Host</th>
+            <th>Hosts</th>
             <th>Location</th>
             {% if current_user.is_admin %}<th>Actions</th>{% endif %}
           </tr>
@@ -144,9 +213,13 @@
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
             <td>
-              <code>{{ child.ip_address or '-' }}</code>
-              {% if child.ip_address and child.latest_ping and child.latest_ping.resolved_ip and child.latest_ping.resolved_ip != child.ip_address %}
-                <small class="text-muted">({{ child.latest_ping.resolved_ip }})</small>
+              {% set child_hosts = child.hosts.all() %}
+              {% if child_hosts %}
+                {% for h in child_hosts %}
+                <code class="me-1">{{ h.address }}</code>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">-</span>
               {% endif %}
             </td>
             <td>{{ child.location or '-' }}</td>
