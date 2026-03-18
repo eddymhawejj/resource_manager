@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from flask import render_template, redirect, url_for, flash, request, jsonify, abort
 from flask_login import login_required, current_user
 
@@ -72,7 +74,20 @@ def create():
     form.resource_id.choices = [(t.id, t.name) for t in testbeds]
 
     if form.validate_on_submit():
-        if form.start_time.data >= form.end_time.data:
+        if form.all_day.data:
+            if not form.all_day_date.data:
+                flash('Please select a date for the all-day booking.', 'danger')
+                return render_template('bookings/form.html', form=form, title='Create Booking')
+            start_time = datetime.combine(form.all_day_date.data, datetime.min.time())
+            end_time = start_time + timedelta(days=1)
+        else:
+            if not form.start_time.data or not form.end_time.data:
+                flash('Please provide start and end times.', 'danger')
+                return render_template('bookings/form.html', form=form, title='Create Booking')
+            start_time = form.start_time.data
+            end_time = form.end_time.data
+
+        if start_time >= end_time:
             flash('End time must be after start time.', 'danger')
             return render_template('bookings/form.html', form=form, title='Create Booking')
 
@@ -80,8 +95,8 @@ def create():
             resource_id=form.resource_id.data,
             user_id=current_user.id,
             title=form.title.data,
-            start_time=form.start_time.data,
-            end_time=form.end_time.data,
+            start_time=start_time,
+            end_time=end_time,
             notes=form.notes.data,
             status='confirmed',
         )

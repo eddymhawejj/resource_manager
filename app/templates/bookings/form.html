@@ -26,7 +26,20 @@
             {% endfor %}
           </div>
 
-          <div class="row">
+          <div class="mb-3 form-check">
+            {{ form.all_day(class="form-check-input", id="all_day") }}
+            {{ form.all_day.label(class="form-check-label") }}
+          </div>
+
+          <div id="all-day-date" class="mb-3" style="display: none;">
+            {{ form.all_day_date.label(class="form-label") }}
+            {{ form.all_day_date(class="form-control", type="date") }}
+            {% for error in form.all_day_date.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+
+          <div id="time-fields" class="row">
             <div class="col-md-6 mb-3">
               {{ form.start_time.label(class="form-label") }}
               {{ form.start_time(class="form-control", type="datetime-local") }}
@@ -71,5 +84,23 @@
     const select = document.getElementById('resource_id');
     if (select) select.value = resourceId;
   }
+
+  // Toggle all-day vs time fields
+  const allDayCheckbox = document.getElementById('all_day');
+  const timeFields = document.getElementById('time-fields');
+  const allDayDate = document.getElementById('all-day-date');
+
+  function toggleAllDay() {
+    if (allDayCheckbox.checked) {
+      timeFields.style.display = 'none';
+      allDayDate.style.display = 'block';
+    } else {
+      timeFields.style.display = 'flex';
+      allDayDate.style.display = 'none';
+    }
+  }
+
+  allDayCheckbox.addEventListener('change', toggleAllDay);
+  toggleAllDay();
 </script>
 {% endblock %}
