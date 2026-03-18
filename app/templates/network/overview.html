@@ -7,44 +7,56 @@
   <p class="text-muted mb-0">VLANs, subnets, and host mapping across the lab</p>
   {% if current_user.is_admin %}
   <div class="d-flex gap-2 align-items-center">
-    {% if switch_configured %}
-    <form method="POST" action="{{ url_for('network.sync_now') }}" class="d-inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-outline-success" title="Pull VLANs and subnets from switch">
-        <i class="bi bi-cloud-download me-1"></i>Sync from Switch
-      </button>
-    </form>
-    <form method="POST" action="{{ url_for('network.discover_now') }}" class="d-inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-outline-info" title="Discover devices via LLDP neighbors on the switch">
-        <i class="bi bi-search me-1"></i>Discover Hosts (LLDP)
-      </button>
-    </form>
-    {% if last_sync %}
-    <small class="text-muted" title="{{ last_sync }}">Last sync: {{ last_sync[:16]|replace('T', ' ') }}</small>
-    {% endif %}
-    {% endif %}
-    <form method="POST" action="{{ url_for('network.scan_subnets') }}" class="d-inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-outline-warning" title="Ping-sweep all subnets to discover active hosts (runs in background)">
-        <i class="bi bi-broadcast me-1"></i>Scan Subnets
-      </button>
-    </form>
-    {% if last_scan %}
-    <small class="text-muted" title="{{ last_scan }}">Last scan: {{ last_scan[:16]|replace('T', ' ') }}</small>
-    {% endif %}
-    <form method="POST" action="{{ url_for('network.relink_all') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-sm btn-outline-secondary" title="Re-scan all host IPs and link them to matching subnets">
-        <i class="bi bi-arrow-repeat me-1"></i>Re-link Hosts
-      </button>
-    </form>
-    <a href="{{ url_for('network.add_subnet') }}" class="btn btn-sm btn-outline-primary">
-      <i class="bi bi-plus-lg me-1"></i>Add Subnet
-    </a>
     <a href="{{ url_for('network.add_vlan') }}" class="btn btn-sm btn-primary">
       <i class="bi bi-plus-lg me-1"></i>Add VLAN
     </a>
+    <a href="{{ url_for('network.add_subnet') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-plus-lg me-1"></i>Add Subnet
+    </a>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+        <i class="bi bi-gear me-1"></i>Actions
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+          <form method="POST" action="{{ url_for('network.scan_subnets') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="dropdown-item">
+              <i class="bi bi-broadcast me-1 text-warning"></i>Scan Subnets
+              {% if last_scan %}<small class="text-muted ms-1">{{ last_scan[:16]|replace('T', ' ') }}</small>{% endif %}
+            </button>
+          </form>
+        </li>
+        {% if switch_configured %}
+        <li>
+          <form method="POST" action="{{ url_for('network.sync_now') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="dropdown-item">
+              <i class="bi bi-cloud-download me-1 text-success"></i>Sync from Switch
+              {% if last_sync %}<small class="text-muted ms-1">{{ last_sync[:16]|replace('T', ' ') }}</small>{% endif %}
+            </button>
+          </form>
+        </li>
+        <li>
+          <form method="POST" action="{{ url_for('network.discover_now') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="dropdown-item">
+              <i class="bi bi-search me-1 text-info"></i>Discover Hosts (LLDP)
+            </button>
+          </form>
+        </li>
+        {% endif %}
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          <form method="POST" action="{{ url_for('network.relink_all') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="dropdown-item">
+              <i class="bi bi-arrow-repeat me-1 text-secondary"></i>Re-link Hosts
+            </button>
+          </form>
+        </li>
+      </ul>
+    </div>
   </div>
   {% endif %}
 </div>
