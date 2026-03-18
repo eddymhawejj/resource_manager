@@ -6,14 +6,16 @@
 <style>
   #topology-container {
     width: 100%;
-    height: 600px;
+    height: 650px;
     border: 1px solid var(--border-color);
     border-radius: 0.75rem;
     background: var(--bg-card);
+    position: relative;
   }
   .topo-legend {
     display: flex;
     gap: 1.5rem;
+    flex-wrap: wrap;
     margin-bottom: 1rem;
   }
   .topo-legend-item {
@@ -27,44 +29,70 @@
     height: 12px;
     border-radius: 50%;
   }
-  .topo-node {
+  .topo-legend-dot.square {
+    border-radius: 2px;
+  }
+  .topo-legend-dot.diamond {
+    border-radius: 2px;
+    transform: rotate(45deg);
+    width: 10px;
+    height: 10px;
+  }
+  .topo-controls {
+    display: flex;
+    gap: 0.5rem;
+  }
+  #topo-loading {
     position: absolute;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 0.8rem;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     text-align: center;
-    color: white;
-    font-weight: 500;
-    cursor: default;
-    white-space: nowrap;
-    box-shadow: var(--shadow);
+    color: var(--text-secondary);
   }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <p class="text-muted mb-0">Visual map of VLANs, subnets, and connected hosts</p>
-  <a href="{{ url_for('network.overview') }}" class="btn btn-sm btn-outline-primary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Overview
-  </a>
+  <p class="text-muted mb-0">Interactive map of VLANs, subnets, and connected hosts. Drag nodes to rearrange. Scroll to zoom.</p>
+  <div class="d-flex gap-2">
+    <div class="topo-controls">
+      <button class="btn btn-sm btn-outline-secondary" onclick="topoFit()" title="Fit to view">
+        <i class="bi bi-arrows-fullscreen"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="topoTogglePhysics()" title="Toggle physics" id="physics-btn">
+        <i class="bi bi-unlock"></i>
+      </button>
+    </div>
+    <a href="{{ url_for('network.overview') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-arrow-left me-1"></i>Back to Overview
+    </a>
+  </div>
 </div>
 
 <div class="topo-legend">
-  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#0d6efd"></div> VLAN</div>
-  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#198754"></div> Subnet</div>
-  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#198754;opacity:0.7"></div> Host (Online)</div>
-  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#dc3545"></div> Host (Offline)</div>
-  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#6c757d"></div> Host (Unknown)</div>
+  <div class="topo-legend-item"><div class="topo-legend-dot" style="background:#4a90d9"></div> VLAN</div>
+  <div class="topo-legend-item"><div class="topo-legend-dot square" style="background:#6f42c1"></div> Subnet</div>
+  <div class="topo-legend-item"><div class="topo-legend-dot diamond" style="background:#198754"></div> Host (Online)</div>
+  <div class="topo-legend-item"><div class="topo-legend-dot diamond" style="background:#dc3545"></div> Host (Offline)</div>
+  <div class="topo-legend-item"><div class="topo-legend-dot diamond" style="background:#6c757d"></div> Host (Unknown)</div>
 </div>
 
 <div id="topology-container">
-  <canvas id="topology-canvas" style="width:100%;height:100%;"></canvas>
+  <div id="topo-loading">
+    <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+    <div>Loading topology...</div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
+let network = null;
+let physicsEnabled = true;
+
 document.addEventListener('DOMContentLoaded', function() {
   fetch('{{ url_for("network.topology_data") }}')
     .then(r => r.json())
@@ -73,71 +101,138 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function drawTopology(data) {
   const container = document.getElementById('topology-container');
-  const canvas = document.getElementById('topology-canvas');
-  canvas.width = container.clientWidth;
-  canvas.height = container.clientHeight;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  document.getElementById('topo-loading').remove();
 
-  // Layout nodes by type in tiers
-  const vlans = data.nodes.filter(n => n.type === 'vlan');
-  const subnets = data.nodes.filter(n => n.type === 'subnet');
-  const hosts = data.nodes.filter(n => n.type === 'host');
-  const positions = {};
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#e0e0e0' : '#333333';
+  const edgeColor = isDark ? '#555555' : '#cccccc';
 
-  // VLAN tier at y=80
-  vlans.forEach((n, i) => {
-    positions[n.id] = {x: (i + 1) * W / (vlans.length + 1), y: 60};
-  });
-
-  // Subnet tier at y=220
-  subnets.forEach((n, i) => {
-    positions[n.id] = {x: (i + 1) * W / (subnets.length + 1), y: 220};
-  });
-
-  // Host tier at y=380+
-  const rows = Math.ceil(hosts.length / Math.max(Math.floor(W / 120), 1));
-  const perRow = Math.ceil(hosts.length / Math.max(rows, 1));
-  hosts.forEach((n, i) => {
-    const row = Math.floor(i / perRow);
-    const col = i % perRow;
-    positions[n.id] = {
-      x: (col + 1) * W / (perRow + 1),
-      y: 380 + row * 80
+  // Build vis.js nodes
+  const nodes = data.nodes.map(n => {
+    let node = {
+      id: n.id,
+      font: { color: textColor, face: 'Inter, sans-serif' },
     };
+
+    if (n.type === 'vlan') {
+      node.label = n.label.replace('\n', '\n');
+      node.shape = 'dot';
+      node.size = 30;
+      node.color = { background: '#4a90d9', border: '#2a6cb0', highlight: { background: '#5da0e9', border: '#2a6cb0' } };
+      node.font.size = 14;
+      node.font.bold = true;
+      node.level = 0;
+      node.title = `<strong>${n.label.replace('\n', ' — ')}</strong>`;
+    } else if (n.type === 'subnet') {
+      node.label = n.label.replace('\n', '\n');
+      node.shape = 'box';
+      node.size = 22;
+      node.color = { background: '#6f42c1', border: '#5a329e', highlight: { background: '#8256d1', border: '#5a329e' } };
+      node.font.size = 12;
+      node.font.color = '#ffffff';
+      node.level = 1;
+      node.title = `<strong>Subnet:</strong> ${n.label.replace('\n', ' — ')}`;
+    } else {
+      // host
+      const statusLabel = n.color === '#198754' ? 'Online' : n.color === '#dc3545' ? 'Offline' : 'Unknown';
+      node.label = n.label.split('\n')[0];
+      node.shape = 'diamond';
+      node.size = 14;
+      node.color = { background: n.color, border: n.color, highlight: { background: n.color, border: '#ffffff' } };
+      node.font.size = 10;
+      node.level = 2;
+      let tip = `<strong>${n.label.replace('\n', ' — ')}</strong><br>Status: ${statusLabel}`;
+      if (n.resource) tip += `<br>Resource: ${n.resource}`;
+      node.title = tip;
+    }
+
+    return node;
   });
 
-  // Draw edges
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-color') || '#dee2e6';
-  data.edges.forEach(e => {
-    const from = positions[e.from], to = positions[e.to];
-    if (!from || !to) return;
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
-  });
+  // Build vis.js edges
+  const edges = data.edges.map(e => ({
+    from: e.from,
+    to: e.to,
+    color: { color: edgeColor, highlight: '#888888' },
+    width: 1.5,
+    smooth: { type: 'cubicBezier', roundness: 0.4 },
+  }));
 
-  // Draw nodes
-  data.nodes.forEach(n => {
-    const pos = positions[n.id];
-    if (!pos) return;
-    ctx.fillStyle = n.color;
-    const radius = n.type === 'vlan' ? 22 : n.type === 'subnet' ? 18 : 14;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-    ctx.fill();
+  const options = {
+    layout: {
+      hierarchical: {
+        enabled: true,
+        direction: 'UD',
+        sortMethod: 'directed',
+        levelSeparation: 180,
+        nodeSpacing: 160,
+        treeSpacing: 200,
+        blockShifting: true,
+        edgeMinimization: true,
+        parentCentralization: true,
+      }
+    },
+    physics: {
+      enabled: true,
+      hierarchicalRepulsion: {
+        centralGravity: 0.0,
+        springLength: 150,
+        springConstant: 0.01,
+        nodeDistance: 180,
+        damping: 0.09,
+        avoidOverlap: 0.5,
+      },
+      stabilization: {
+        iterations: 150,
+        fit: true,
+      }
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 100,
+      navigationButtons: false,
+      keyboard: {
+        enabled: true,
+        bindToWindow: false,
+      },
+      zoomView: true,
+      dragView: true,
+    },
+    nodes: {
+      borderWidth: 2,
+      shadow: {
+        enabled: true,
+        size: 6,
+        x: 2,
+        y: 2,
+        color: 'rgba(0,0,0,0.15)',
+      },
+    },
+    edges: {
+      shadow: false,
+    },
+  };
 
-    // Label
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary') || '#212529';
-    ctx.font = n.type === 'host' ? '10px Inter, sans-serif' : '11px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    const lines = n.label.split('\n');
-    lines.forEach((line, i) => {
-      ctx.fillText(line, pos.x, pos.y + radius + 14 + i * 13);
-    });
+  network = new vis.Network(container, { nodes, edges }, options);
+
+  // After stabilization, disable physics so dragged nodes stay put
+  network.once('stabilizationIterationsDone', function() {
+    network.setOptions({ physics: { enabled: false } });
+    physicsEnabled = false;
+    document.getElementById('physics-btn').innerHTML = '<i class="bi bi-lock"></i>';
+    network.fit({ animation: { duration: 400 } });
   });
+}
+
+function topoFit() {
+  if (network) network.fit({ animation: { duration: 400 } });
+}
+
+function topoTogglePhysics() {
+  physicsEnabled = !physicsEnabled;
+  network.setOptions({ physics: { enabled: physicsEnabled } });
+  const btn = document.getElementById('physics-btn');
+  btn.innerHTML = physicsEnabled ? '<i class="bi bi-unlock"></i>' : '<i class="bi bi-lock"></i>';
 }
 </script>
 {% endblock %}
