@@ -23,7 +23,9 @@ def list_bookings():
 @bp.route('/calendar')
 @login_required
 def calendar():
-    testbeds = Resource.query.filter_by(parent_id=None).order_by(Resource.name).all()
+    testbeds = Resource.query.filter_by(parent_id=None).filter(
+        Resource.resource_type != 'device'
+    ).order_by(Resource.name).all()
     return render_template('bookings/calendar.html', testbeds=testbeds)
 
 
@@ -70,7 +72,9 @@ def events():
 @login_required
 def create():
     form = BookingForm()
-    testbeds = Resource.query.filter_by(parent_id=None, is_active=True).order_by(Resource.name).all()
+    testbeds = Resource.query.filter_by(parent_id=None, is_active=True).filter(
+        Resource.resource_type != 'device'
+    ).order_by(Resource.name).all()
     form.resource_id.choices = [(t.id, t.name) for t in testbeds]
 
     if form.validate_on_submit():

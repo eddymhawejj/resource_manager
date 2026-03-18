@@ -40,96 +40,201 @@
   {% endif %}
 </div>
 
-{% if vlans %}
-<div class="row g-4">
-  {% for vlan in vlans %}
-  <div class="col-md-6 col-xl-4">
-    <div class="card h-100">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <a href="{{ url_for('network.vlan_detail', vlan_id=vlan.id) }}" class="text-decoration-none fw-medium" style="color: var(--text-primary);">
-          <i class="bi bi-diagram-2 me-1"></i>VLAN {{ vlan.number }} - {{ vlan.name }}
-        </a>
-      </div>
-      <div class="card-body p-0">
-        {% set subnet_list = vlan.subnets.all() %}
-        {% if subnet_list %}
-        <ul class="list-group list-group-flush">
-          {% for subnet in subnet_list %}
-          <li class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <code>{{ subnet.cidr }}</code>
-                {% if subnet.name %}
-                  <small class="text-muted ms-1">{{ subnet.name }}</small>
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="vlans-tab" data-bs-toggle="tab" data-bs-target="#vlans-pane" type="button" role="tab">
+      <i class="bi bi-diagram-2 me-1"></i>VLANs & Subnets
+      {% if vlans %}<span class="badge bg-secondary ms-1">{{ vlans|length }}</span>{% endif %}
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="devices-tab" data-bs-toggle="tab" data-bs-target="#devices-pane" type="button" role="tab">
+      <i class="bi bi-hdd-network me-1"></i>Discovered Devices
+      {% if discovered_devices %}<span class="badge bg-info ms-1">{{ discovered_devices|length }}</span>{% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <!-- VLANs & Subnets Tab -->
+  <div class="tab-pane fade show active" id="vlans-pane" role="tabpanel">
+    {% if vlans %}
+    <div class="row g-4">
+      {% for vlan in vlans %}
+      <div class="col-md-6 col-xl-4">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <a href="{{ url_for('network.vlan_detail', vlan_id=vlan.id) }}" class="text-decoration-none fw-medium" style="color: var(--text-primary);">
+              <i class="bi bi-diagram-2 me-1"></i>VLAN {{ vlan.number }} - {{ vlan.name }}
+            </a>
+          </div>
+          <div class="card-body p-0">
+            {% set subnet_list = vlan.subnets.all() %}
+            {% if subnet_list %}
+            <ul class="list-group list-group-flush">
+              {% for subnet in subnet_list %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <code>{{ subnet.cidr }}</code>
+                    {% if subnet.name %}
+                      <small class="text-muted ms-1">{{ subnet.name }}</small>
+                    {% endif %}
+                  </div>
+                  <span class="badge bg-secondary">{{ subnet.host_count }} host{{ 's' if subnet.host_count != 1 }}</span>
+                </div>
+                {% if subnet.gateway %}
+                <small class="text-muted">GW: {{ subnet.gateway }}</small>
                 {% endif %}
-              </div>
-              <span class="badge bg-secondary">{{ subnet.host_count }} host{{ 's' if subnet.host_count != 1 }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="p-3 text-center">
+              <small class="text-muted">No subnets defined</small>
             </div>
-            {% if subnet.gateway %}
-            <small class="text-muted">GW: {{ subnet.gateway }}</small>
             {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="p-3 text-center">
-          <small class="text-muted">No subnets defined</small>
+          </div>
+          {% if vlan.description %}
+          <div class="card-footer bg-transparent">
+            <small class="text-muted">{{ vlan.description }}</small>
+          </div>
+          {% endif %}
         </div>
-        {% endif %}
       </div>
-      {% if vlan.description %}
-      <div class="card-footer bg-transparent">
-        <small class="text-muted">{{ vlan.description }}</small>
-      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="bi bi-diagram-2 d-block" style="font-size: 2.5rem;"></i>
+      <h5>No VLANs configured</h5>
+      <p class="text-muted">Add VLANs and subnets to map your lab network. Hosts will be auto-linked to matching subnets.</p>
+      {% if current_user.is_admin %}
+      <a href="{{ url_for('network.add_vlan') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Add First VLAN
+      </a>
       {% endif %}
     </div>
-  </div>
-  {% endfor %}
-</div>
-{% else %}
-<div class="empty-state">
-  <i class="bi bi-diagram-2 d-block" style="font-size: 2.5rem;"></i>
-  <h5>No VLANs configured</h5>
-  <p class="text-muted">Add VLANs and subnets to map your lab network. Hosts will be auto-linked to matching subnets.</p>
-  {% if current_user.is_admin %}
-  <a href="{{ url_for('network.add_vlan') }}" class="btn btn-primary">
-    <i class="bi bi-plus-lg me-1"></i>Add First VLAN
-  </a>
-  {% endif %}
-</div>
-{% endif %}
+    {% endif %}
 
-{% if unlinked_hosts %}
-<div class="card mt-4">
-  <div class="card-header">
-    <i class="bi bi-question-circle me-2"></i>Unlinked Hosts ({{ unlinked_hosts|length }})
+    {% if unlinked_hosts %}
+    <div class="card mt-4">
+      <div class="card-header">
+        <i class="bi bi-question-circle me-2"></i>Unlinked Hosts ({{ unlinked_hosts|length }})
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>Label</th>
+                <th>Resource</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for host in unlinked_hosts %}
+              <tr>
+                <td><code>{{ host.address }}</code></td>
+                <td>{{ host.label or '-' }}</td>
+                <td>
+                  <a href="{{ url_for('resources.detail', resource_id=host.resource.id) }}" class="text-decoration-none">
+                    {{ host.resource.name }}
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
   </div>
-  <div class="card-body p-0">
+
+  <!-- Discovered Devices Tab -->
+  <div class="tab-pane fade" id="devices-pane" role="tabpanel">
+    {% if last_discovery %}
+    <p class="text-muted mb-3">
+      <small>Last discovery: {{ last_discovery[:16]|replace('T', ' ') }}</small>
+    </p>
+    {% endif %}
+
+    {% if discovered_devices %}
     <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0">
+      <table class="table table-hover align-middle">
         <thead>
           <tr>
-            <th>Address</th>
-            <th>Label</th>
-            <th>Resource</th>
+            <th>Device Name</th>
+            <th>Hosts</th>
+            <th>Subnet</th>
+            <th>Description</th>
+            {% if current_user.is_admin %}
+            <th class="text-end">Actions</th>
+            {% endif %}
           </tr>
         </thead>
         <tbody>
-          {% for host in unlinked_hosts %}
+          {% for device in discovered_devices %}
           <tr>
-            <td><code>{{ host.address }}</code></td>
-            <td>{{ host.label or '-' }}</td>
             <td>
-              <a href="{{ url_for('resources.detail', resource_id=host.resource.id) }}" class="text-decoration-none">
-                {{ host.resource.name }}
+              <i class="bi bi-hdd-network me-1 text-info"></i>
+              <a href="{{ url_for('resources.detail', resource_id=device.id) }}" class="text-decoration-none">
+                {{ device.name }}
               </a>
             </td>
+            <td>
+              {% for host in device.hosts.all() %}
+              <div>
+                <code>{{ host.address }}</code>
+                {% if host.label %}<small class="text-muted ms-1">{{ host.label }}</small>{% endif %}
+              </div>
+              {% endfor %}
+            </td>
+            <td>
+              {% for host in device.hosts.all() %}
+              <div>
+                {% if host.subnet %}
+                <span class="badge bg-success">{{ host.subnet.cidr }}</span>
+                {% else %}
+                <span class="badge bg-secondary">Unlinked</span>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </td>
+            <td><small class="text-muted">{{ device.description }}</small></td>
+            {% if current_user.is_admin %}
+            <td class="text-end">
+              <div class="btn-group btn-group-sm">
+                <form method="POST" action="{{ url_for('network.promote_device', resource_id=device.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-success" title="Promote to bookable resource">
+                    <i class="bi bi-arrow-up-circle me-1"></i>Promote
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('network.delete_device', resource_id=device.id) }}" class="d-inline"
+                      onsubmit="return confirm('Delete discovered device {{ device.name }}?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger" title="Remove this device">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="bi bi-hdd-network d-block" style="font-size: 2.5rem;"></i>
+      <h5>No discovered devices</h5>
+      <p class="text-muted">Use "Discover Hosts (LLDP)" to find devices connected to the switch. Discovered devices appear here and are separate from your bookable resources.</p>
+    </div>
+    {% endif %}
   </div>
 </div>
-{% endif %}
 {% endblock %}

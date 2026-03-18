@@ -91,7 +91,9 @@ def admin_required(f):
 @bp.route('/')
 @login_required
 def list_resources():
-    testbeds = Resource.query.filter_by(parent_id=None).order_by(Resource.name).all()
+    testbeds = Resource.query.filter_by(parent_id=None).filter(
+        Resource.resource_type != 'device'
+    ).order_by(Resource.name).all()
     return render_template('resources/list.html', testbeds=testbeds)
 
 

@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from app.network import bp
 from app.network.forms import VlanForm, SubnetForm
 from app.extensions import db
-from app.models import Vlan, Subnet, ResourceHost, AppSettings
+from app.models import Vlan, Subnet, Resource, ResourceHost, AppSettings
 
 
 def admin_required(f):
@@ -26,9 +26,13 @@ def overview():
     from app.network.switch_sync import is_switch_configured
     vlans = Vlan.query.order_by(Vlan.number).all()
     unlinked_hosts = ResourceHost.query.filter_by(subnet_id=None).all()
+    discovered_devices = Resource.query.filter_by(resource_type='device').order_by(Resource.name).all()
     last_sync = AppSettings.get('switch_last_sync', '')
+    last_discovery = AppSettings.get('switch_last_discovery', '')
     return render_template('network/overview.html', vlans=vlans, unlinked_hosts=unlinked_hosts,
-                           switch_configured=is_switch_configured(), last_sync=last_sync)
+                           discovered_devices=discovered_devices,
+                           switch_configured=is_switch_configured(),
+                           last_sync=last_sync, last_discovery=last_discovery)
 
 
 @bp.route('/vlans/add', methods=['GET', 'POST'])
@@ -213,6 +217,35 @@ def discover_now():
             f'({result["devices_discovered"]} LLDP devices found on switch).',
             'success'
         )
+    return redirect(url_for('network.overview'))
+
+
+@bp.route('/devices/<int:resource_id>/promote', methods=['POST'])
+@login_required
+@admin_required
+def promote_device(resource_id):
+    """Promote a discovered device to a bookable testbed resource."""
+    device = db.session.get(Resource, resource_id) or abort(404)
+    if device.resource_type != 'device':
+        abort(400)
+    device.resource_type = 'testbed'
+    db.session.commit()
+    flash(f'{device.name} promoted to bookable resource.', 'success')
+    return redirect(url_for('network.overview'))
+
+
+@bp.route('/devices/<int:resource_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_device(resource_id):
+    """Delete a discovered device."""
+    device = db.session.get(Resource, resource_id) or abort(404)
+    if device.resource_type != 'device':
+        abort(400)
+    name = device.name
+    db.session.delete(device)
+    db.session.commit()
+    flash(f'Discovered device {name} deleted.', 'success')
     return redirect(url_for('network.overview'))
 
 
