@@ -5,7 +5,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
-from app.admin.forms import UserEditForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm
+from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm
 from app.extensions import db
 from app.models import User, Resource, Booking, AppSettings
 
@@ -72,6 +72,60 @@ def toggle_user(user_id):
     db.session.commit()
     status = 'activated' if user.is_active else 'deactivated'
     flash(f'User "{user.username}" {status}.', 'success')
+    return redirect(url_for('admin.users'))
+
+
+@bp.route('/users/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_user():
+    form = UserCreateForm()
+    if form.validate_on_submit():
+        user = User(
+            username=form.username.data,
+            email=form.email.data,
+            display_name=form.display_name.data,
+            role=form.role.data,
+            is_active=form.is_active.data,
+            auth_type='local',
+        )
+        user.set_password(form.password.data)
+        db.session.add(user)
+        db.session.commit()
+        flash(f'User "{user.username}" created.', 'success')
+        return redirect(url_for('admin.users'))
+    return render_template('admin/create_user.html', form=form)
+
+
+@bp.route('/users/<int:user_id>/reset-password', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def reset_password(user_id):
+    user = db.session.get(User, user_id) or abort(404)
+    if user.auth_type != 'local':
+        flash('Cannot reset password for LDAP users.', 'warning')
+        return redirect(url_for('admin.users'))
+    form = UserResetPasswordForm()
+    if form.validate_on_submit():
+        user.set_password(form.password.data)
+        db.session.commit()
+        flash(f'Password reset for "{user.username}".', 'success')
+        return redirect(url_for('admin.users'))
+    return render_template('admin/reset_password.html', form=form, user=user)
+
+
+@bp.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    user = db.session.get(User, user_id) or abort(404)
+    if user.id == current_user.id:
+        flash('Cannot delete your own account.', 'warning')
+        return redirect(url_for('admin.users'))
+    username = user.username
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User "{username}" deleted.', 'success')
     return redirect(url_for('admin.users'))
 
 

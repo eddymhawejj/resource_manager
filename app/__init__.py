@@ -71,6 +71,10 @@ def create_app(config_class=Config):
         from flask import redirect, url_for
         return redirect(url_for('resources.list_resources'))
 
+    # Auto-migrate schema for new columns
+    with app.app_context():
+        _auto_migrate(db)
+
     # CLI commands
     register_cli(app)
 
@@ -78,6 +82,21 @@ def create_app(config_class=Config):
     start_scheduler(app)
 
     return app
+
+
+def _auto_migrate(db):
+    """Add missing columns to existing tables without requiring a full migration."""
+    import sqlalchemy
+    inspector = sqlalchemy.inspect(db.engine)
+
+    # Add resolved_ip to ping_results if missing
+    if 'ping_results' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('ping_results')]
+        if 'resolved_ip' not in columns:
+            db.session.execute(sqlalchemy.text(
+                'ALTER TABLE ping_results ADD COLUMN resolved_ip VARCHAR(45)'
+            ))
+            db.session.commit()
 
 
 def register_cli(app):

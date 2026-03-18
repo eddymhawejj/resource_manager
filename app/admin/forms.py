@@ -1,7 +1,27 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileAllowed
 from wtforms import StringField, SelectField, BooleanField, PasswordField, IntegerField
-from wtforms.validators import DataRequired, Email, Length, Optional, NumberRange
+from wtforms.validators import DataRequired, Email, Length, Optional, NumberRange, EqualTo, ValidationError
+
+from app.models import User
+
+
+class UserCreateForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=2, max=80)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    display_name = StringField('Display Name', validators=[DataRequired(), Length(min=2, max=120)])
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=6)])
+    password2 = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password', message='Passwords must match.')])
+    role = SelectField('Role', choices=[('user', 'User'), ('admin', 'Admin')])
+    is_active = BooleanField('Active', default=True)
+
+    def validate_username(self, field):
+        if User.query.filter_by(username=field.data).first():
+            raise ValidationError('Username already taken.')
+
+    def validate_email(self, field):
+        if User.query.filter_by(email=field.data).first():
+            raise ValidationError('Email already registered.')
 
 
 class UserEditForm(FlaskForm):
@@ -9,6 +29,11 @@ class UserEditForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     role = SelectField('Role', choices=[('user', 'User'), ('admin', 'Admin')])
     is_active = BooleanField('Active')
+
+
+class UserResetPasswordForm(FlaskForm):
+    password = PasswordField('New Password', validators=[DataRequired(), Length(min=6)])
+    password2 = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password', message='Passwords must match.')])
 
 
 class SmtpSettingsForm(FlaskForm):
