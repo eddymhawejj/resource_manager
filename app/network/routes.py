@@ -29,10 +29,12 @@ def overview():
     discovered_devices = Resource.query.filter_by(resource_type='device').order_by(Resource.name).all()
     last_sync = AppSettings.get('switch_last_sync', '')
     last_discovery = AppSettings.get('switch_last_discovery', '')
+    last_scan = AppSettings.get('subnet_last_scan', '')
     return render_template('network/overview.html', vlans=vlans, unlinked_hosts=unlinked_hosts,
                            discovered_devices=discovered_devices,
                            switch_configured=is_switch_configured(),
-                           last_sync=last_sync, last_discovery=last_discovery)
+                           last_sync=last_sync, last_discovery=last_discovery,
+                           last_scan=last_scan)
 
 
 @bp.route('/vlans/add', methods=['GET', 'POST'])
@@ -236,6 +238,51 @@ def discover_now():
             'success'
         )
     return redirect(url_for('network.overview'))
+
+
+@bp.route('/scan', methods=['POST'])
+@login_required
+@admin_required
+def scan_subnets():
+    """Trigger a ping-sweep scan of all subnets to discover new hosts."""
+    from app.network.subnet_scan import scan_subnets as _scan
+    result = _scan()
+    if 'error' in result:
+        flash(f'Subnet scan failed: {result["error"]}', 'danger')
+    else:
+        flash(
+            f'Subnet scan complete: {len(result["new_hosts"])} new hosts discovered, '
+            f'{result["known_hosts"]} already known, '
+            f'{result["unreachable"]} unreachable '
+            f'({result["total_scanned"]} IPs scanned across {result["subnets_scanned"]} subnets).',
+            'success'
+        )
+        if result.get('skipped_subnets'):
+            flash(
+                f'Skipped large subnets: {", ".join(result["skipped_subnets"])}. '
+                f'Scan individual subnets or increase max size.',
+                'warning'
+            )
+    return redirect(url_for('network.overview'))
+
+
+@bp.route('/subnets/<int:subnet_id>/scan', methods=['POST'])
+@login_required
+@admin_required
+def scan_single_subnet(subnet_id):
+    """Trigger a ping-sweep scan of a specific subnet."""
+    from app.network.subnet_scan import scan_subnets as _scan
+    subnet = db.session.get(Subnet, subnet_id) or abort(404)
+    result = _scan(subnet_id=subnet_id, max_subnet_size=65534)
+    if 'error' in result:
+        flash(f'Subnet scan failed: {result["error"]}', 'danger')
+    else:
+        flash(
+            f'Scan of {subnet.cidr} complete: {len(result["new_hosts"])} new hosts discovered, '
+            f'{result["known_hosts"]} already known, {result["unreachable"]} unreachable.',
+            'success'
+        )
+    return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
 
 
 @bp.route('/devices/<int:resource_id>/promote', methods=['POST'])

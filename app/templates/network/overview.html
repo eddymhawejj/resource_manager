@@ -24,6 +24,16 @@
     <small class="text-muted" title="{{ last_sync }}">Last sync: {{ last_sync[:16]|replace('T', ' ') }}</small>
     {% endif %}
     {% endif %}
+    <form method="POST" action="{{ url_for('network.scan_subnets') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-warning" title="Ping-sweep all subnets to discover active hosts"
+              onclick="return confirm('This will ping all IPs in configured subnets. Continue?');">
+        <i class="bi bi-broadcast me-1"></i>Scan Subnets
+      </button>
+    </form>
+    {% if last_scan %}
+    <small class="text-muted" title="{{ last_scan }}">Last scan: {{ last_scan[:16]|replace('T', ' ') }}</small>
+    {% endif %}
     <form method="POST" action="{{ url_for('network.relink_all') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm btn-outline-secondary" title="Re-scan all host IPs and link them to matching subnets">
