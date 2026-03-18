@@ -154,8 +154,9 @@ def settings():
     switch_form = SwitchSettingsForm(
         switch_host=AppSettings.get('switch_host', ''),
         switch_username=AppSettings.get('switch_username', ''),
-        switch_use_ssl=AppSettings.get('switch_use_ssl', 'true') == 'true',
+        switch_use_ssl=AppSettings.get('switch_use_ssl', 'false') == 'true',
         switch_verify_ssl=AppSettings.get('switch_verify_ssl', 'false') == 'true',
+        switch_api_version=AppSettings.get('switch_api_version', 'v3'),
     )
 
     return render_template('admin/settings.html',
@@ -235,6 +236,7 @@ def save_switch():
             AppSettings.set('switch_password', form.switch_password.data)
         AppSettings.set('switch_use_ssl', 'true' if form.switch_use_ssl.data else 'false')
         AppSettings.set('switch_verify_ssl', 'true' if form.switch_verify_ssl.data else 'false')
+        AppSettings.set('switch_api_version', form.switch_api_version.data or 'v3')
         flash('Switch settings saved.', 'success')
     else:
         flash('Invalid switch settings.', 'danger')

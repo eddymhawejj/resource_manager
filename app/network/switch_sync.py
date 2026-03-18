@@ -3,12 +3,12 @@
 Compatible with HP 2920-48G (j9728a) and other ArubaOS-Switch models that
 support the REST API (firmware WB.16.x+).
 
-REST API flow:
-  1. POST /rest/v1/login-sessions  → get session cookie
-  2. GET  /rest/v1/vlans           → get all VLANs
-  3. GET  /rest/v1/vlans/{id}      → get VLAN detail (name, status)
-  4. GET  /rest/v1/ipaddresses     → get IP interfaces (subnet/gateway info)
-  5. DELETE /rest/v1/login-sessions → logout
+REST API flow (default v3, configurable):
+  1. POST /rest/v3/login-sessions  → get session cookie
+  2. GET  /rest/v3/vlans           → get all VLANs
+  3. GET  /rest/v3/vlans/{id}      → get VLAN detail (name, status)
+  4. GET  /rest/v3/ipaddresses     → get IP interfaces (subnet/gateway info)
+  5. DELETE /rest/v3/login-sessions → logout
 """
 import logging
 from datetime import datetime, timezone
@@ -30,14 +30,16 @@ def _get_switch_config():
     host = AppSettings.get('switch_host', '')
     username = AppSettings.get('switch_username', '')
     password = AppSettings.get('switch_password', '')
-    use_ssl = AppSettings.get('switch_use_ssl', 'true') == 'true'
+    use_ssl = AppSettings.get('switch_use_ssl', 'false') == 'true'
     verify_ssl = AppSettings.get('switch_verify_ssl', 'false') == 'true'
+    api_version = AppSettings.get('switch_api_version', 'v3')
     return {
         'host': host.strip(),
         'username': username,
         'password': password,
         'use_ssl': use_ssl,
         'verify_ssl': verify_ssl,
+        'api_version': api_version,
     }
 
 
@@ -54,9 +56,10 @@ class SwitchAPIError(Exception):
 class SwitchClient:
     """REST API client for ArubaOS-Switch (HP 2920 series)."""
 
-    def __init__(self, host, username, password, use_ssl=True, verify_ssl=False):
+    def __init__(self, host, username, password, use_ssl=True, verify_ssl=False, api_version='v3'):
         scheme = 'https' if use_ssl else 'http'
         self.base_url = f'{scheme}://{host}'
+        self.api_base = f'{self.base_url}/rest/{api_version}'
         self.username = username
         self.password = password
         self.verify = verify_ssl
@@ -66,7 +69,7 @@ class SwitchClient:
 
     def login(self):
         """Authenticate and store session cookie."""
-        url = f'{self.base_url}/rest/v1/login-sessions'
+        url = f'{self.api_base}/login-sessions'
         payload = {'userName': self.username}
         if self.password:
             payload['password'] = self.password
@@ -94,7 +97,7 @@ class SwitchClient:
             return
         try:
             self.session.delete(
-                f'{self.base_url}/rest/v1/login-sessions',
+                f'{self.api_base}/login-sessions',
                 timeout=5,
             )
         except Exception:
@@ -105,14 +108,18 @@ class SwitchClient:
 
         Returns list of dicts: [{'vlan_id': int, 'name': str, 'status': str}, ...]
         """
-        url = f'{self.base_url}/rest/v1/vlans'
+        url = f'{self.api_base}/vlans'
         r = self.session.get(url, timeout=10)
         if r.status_code != 200:
             raise SwitchAPIError(f'Failed to fetch VLANs (HTTP {r.status_code})')
 
         data = r.json()
         vlans = []
-        for entry in data.get('vlan_element', []):
+        # v1 uses 'vlan_element', v3+ may use 'vlan_element' or return a list directly
+        entries = data.get('vlan_element', [])
+        if not entries and isinstance(data, list):
+            entries = data
+        for entry in entries:
             vlans.append({
                 'vlan_id': entry.get('vlan_id'),
                 'name': entry.get('name', ''),
@@ -126,7 +133,7 @@ class SwitchClient:
         Returns list of dicts: [{'vlan_id': int, 'ip_address': {'octets': str, 'version': str},
                                   'ip_mask': {'octets': str}}, ...]
         """
-        url = f'{self.base_url}/rest/v1/ipaddresses'
+        url = f'{self.api_base}/ipaddresses'
         try:
             r = self.session.get(url, timeout=10)
             if r.status_code != 200:
@@ -167,6 +174,7 @@ def sync_vlans_from_switch(app=None):
             password=cfg['password'],
             use_ssl=cfg['use_ssl'],
             verify_ssl=cfg['verify_ssl'],
+            api_version=cfg['api_version'],
         )
 
         client.login()

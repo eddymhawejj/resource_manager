@@ -102,6 +102,12 @@
             {{ switch_form.switch_password(class="form-control", placeholder="Leave blank to keep current") }}
           </div>
 
+          <div class="mb-3">
+            {{ switch_form.switch_api_version.label(class="form-label") }}
+            {{ switch_form.switch_api_version(class="form-select") }}
+            <small class="form-text text-muted">API version supported by the switch (v3 works for most WB.16.x firmware)</small>
+          </div>
+
           <div class="mb-3 form-check">
             {{ switch_form.switch_use_ssl(class="form-check-input") }}
             {{ switch_form.switch_use_ssl.label(class="form-check-label") }}
