@@ -140,16 +140,17 @@ def detail(resource_id):
             Resource.resource_type != 'device',
         ).order_by(Resource.name).all()
 
-    # Available testbeds for assigning as shared parents (from child's view)
+    # Available testbeds for assigning as shared parents (from child's / device's view)
     assignable_parents = []
-    if not resource.is_testbed and current_user.is_authenticated and current_user.is_admin:
+    if current_user.is_authenticated and current_user.is_admin:
         existing_parent_ids = {a.parent_id for a in shared_parents}
         if resource.parent_id:
             existing_parent_ids.add(resource.parent_id)
         existing_parent_ids.add(resource_id)
         assignable_parents = Resource.query.filter(
             Resource.id.notin_(existing_parent_ids),
-            Resource.is_testbed == True,
+            Resource.parent_id == None,
+            Resource.id != resource_id,
         ).order_by(Resource.name).all()
 
     # Access points: own + children's (for testbeds)
@@ -172,6 +173,15 @@ def detail(resource_id):
         has_active_booking = Booking.user_has_active_booking(current_user.id, testbed_id)
     can_access = current_user.is_admin or has_active_booking
 
+    # For device-type resources: list testbeds to promote into
+    available_testbeds = []
+    if resource.resource_type == 'device' and current_user.is_admin:
+        available_testbeds = Resource.query.filter(
+            Resource.parent_id == None,
+            Resource.resource_type != 'device',
+            Resource.id != resource_id,
+        ).order_by(Resource.name).all()
+
     return render_template('resources/detail.html', resource=resource, children=children,
                            host_form=host_form, is_favorited=is_favorited,
                            active_maintenance=active_maintenance,
@@ -183,7 +193,8 @@ def detail(resource_id):
                            all_access_points=all_access_points,
                            all_access_points_admin=all_access_points_admin,
                            has_active_booking=has_active_booking,
-                           can_access=can_access)
+                           can_access=can_access,
+                           available_testbeds=available_testbeds)
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -564,7 +575,7 @@ def assign_shared_parent(resource_id):
         return redirect(url_for('resources.detail', resource_id=resource_id))
 
     parent = db.session.get(Resource, parent_id)
-    if not parent or not parent.is_testbed:
+    if not parent:
         flash('Testbed not found.', 'danger')
         return redirect(url_for('resources.detail', resource_id=resource_id))
 

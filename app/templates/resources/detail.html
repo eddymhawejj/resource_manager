@@ -13,6 +13,44 @@
   </ol>
 </nav>
 
+<!-- Promote Banner for discovered devices -->
+{% if resource.resource_type == 'device' and current_user.is_admin %}
+<div class="alert alert-info d-flex align-items-start gap-3 mb-4">
+  <i class="bi bi-info-circle fs-4 mt-1"></i>
+  <div class="flex-grow-1">
+    <h6 class="alert-heading mb-1">Discovered Device</h6>
+    <p class="mb-2 small">This resource was discovered via subnet scan and hasn't been promoted yet. Promote it to make it bookable or assign it to a testbed.</p>
+    <form method="POST" action="{{ url_for('network.promote_device', resource_id=resource.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="redirect_to" value="detail">
+      <div class="col-auto">
+        <label class="form-label small mb-0">Type</label>
+        <select name="resource_type" class="form-select form-select-sm">
+          <option value="testbed">Testbed (bookable)</option>
+          <option value="server" selected>Server</option>
+          <option value="switch">Switch</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      {% if available_testbeds %}
+      <div class="col-auto">
+        <label class="form-label small mb-0">Assign to parent</label>
+        <select name="parent_id" class="form-select form-select-sm">
+          <option value="">None (standalone)</option>
+          {% for t in available_testbeds %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-arrow-up-circle me-1"></i>Promote</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <!-- Resource Info -->
 <div class="row g-4 mb-4">
   <div class="col-lg-8">

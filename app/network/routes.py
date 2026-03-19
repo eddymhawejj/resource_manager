@@ -305,13 +305,33 @@ def scan_progress():
 @login_required
 @admin_required
 def promote_device(resource_id):
-    """Promote a discovered device to a bookable testbed resource."""
+    """Promote a discovered device to a bookable resource (testbed or child)."""
     device = db.session.get(Resource, resource_id) or abort(404)
     if device.resource_type != 'device':
         abort(400)
-    device.resource_type = 'testbed'
+
+    resource_type = request.form.get('resource_type', 'testbed')
+    if resource_type not in ('testbed', 'server', 'switch', 'other'):
+        resource_type = 'testbed'
+
+    parent_id = request.form.get('parent_id', type=int)
+    device.resource_type = resource_type
+
+    if parent_id:
+        parent = db.session.get(Resource, parent_id)
+        if parent:
+            device.parent_id = parent_id
+
     db.session.commit()
-    flash(f'{device.name} promoted to bookable resource.', 'success')
+
+    if parent_id and parent:
+        flash(f'{device.name} promoted to {resource_type} under {parent.name}.', 'success')
+    else:
+        flash(f'{device.name} promoted to {resource_type}.', 'success')
+
+    redirect_to = request.form.get('redirect_to')
+    if redirect_to == 'detail':
+        return redirect(url_for('resources.detail', resource_id=resource_id))
     return redirect(url_for('network.overview'))
 
 
