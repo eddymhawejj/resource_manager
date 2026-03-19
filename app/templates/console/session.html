@@ -131,7 +131,13 @@
 
     // Attach display
     displayEl.innerHTML = '';
-    displayEl.appendChild(client.getDisplay().getElement());
+    var display = client.getDisplay();
+    displayEl.appendChild(display.getElement());
+
+    // Rescale whenever the remote desktop sends its actual dimensions
+    display.onresize = function(width, height) {
+      fitDisplay();
+    };
 
     // State change handler
     client.onstatechange = function(state) {
@@ -211,7 +217,7 @@
     var w = Math.round(window.innerWidth * dpr);
     var h = Math.round(window.innerHeight * dpr);
     var dpi = Math.round(96 * dpr);
-    client.connect('width=' + w + '&height=' + h + '&dpi=' + dpi);;
+    client.connect('width=' + w + '&height=' + h + '&dpi=' + dpi);
   }
 
   function fitDisplay() {
