@@ -199,13 +199,14 @@ def tunnel(ws, ap_id):
         'username': ap.username or '',
         'password': ap.password or '',
     }
+    user_drive = f'/drive/{current_user.id}'
     if ap.protocol == 'rdp':
         connect_params.update({
             'security': 'any',
             'ignore-cert': 'true',
             'enable-font-smoothing': 'true',
             'enable-drive': 'true',
-            'drive-path': '/drive',
+            'drive-path': user_drive,
             'drive-name': 'Shared',
             'create-drive-path': 'true',
         })
@@ -215,7 +216,7 @@ def tunnel(ws, ap_id):
             'font-size': '14',
             'terminal-type': 'xterm-256color',
             'enable-sftp': 'true',
-            'sftp-root-directory': '/drive',
+            'sftp-root-directory': user_drive,
         })
 
     # Update access tracking

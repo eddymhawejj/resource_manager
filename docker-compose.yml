@@ -2,6 +2,7 @@ services:
   guacd:
     image: guacamole/guacd:1.5.5
     restart: unless-stopped
+    user: root
     ports:
       - "4822:4822"
     volumes:
