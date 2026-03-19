@@ -230,7 +230,11 @@ def edit_resource(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
     form = ResourceForm(obj=resource)
     if form.validate_on_submit():
+        original_type = resource.resource_type
         form.populate_obj(resource)
+        # Preserve 'device' type — it should only change via the promote flow
+        if original_type == 'device' and resource.resource_type != original_type:
+            resource.resource_type = original_type
         _sync_hosts_from_form(resource)
         tag_names = request.form.get('tags', '').split(',')
         _sync_tags(resource, tag_names)
