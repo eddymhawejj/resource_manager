@@ -6,11 +6,10 @@ services:
     ports:
       - "4822:4822"
     volumes:
-      - guacd_drive:/drive
+      - ./data/drive:/drive
       - guacd_record:/record
     environment:
       - GUACD_LOG_LEVEL=info
 
 volumes:
-  guacd_drive:
   guacd_record:

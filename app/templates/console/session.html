@@ -81,6 +81,25 @@
     .file-transfer-item .file-status { font-size: 0.7rem; color: #888; }
     .file-transfer-item.error .file-status { color: #f87171; }
     .file-transfer-item.complete .file-progress-bar { background: #4ade80; }
+    .drive-file {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.04); margin-bottom: 3px;
+      font-size: 0.75rem; color: #ccc; cursor: default;
+    }
+    .drive-file:hover { background: rgba(255,255,255,0.08); }
+    .drive-file .df-name {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .drive-file .df-size { color: #666; font-size: 0.68rem; white-space: nowrap; }
+    .drive-file .df-actions { display: flex; gap: 2px; }
+    .drive-file .df-actions a, .drive-file .df-actions button {
+      color: #888; background: none; border: none; padding: 1px 4px;
+      font-size: 0.72rem; cursor: pointer; border-radius: 3px;
+    }
+    .drive-file .df-actions a:hover { color: #4ade80; background: rgba(74,222,128,0.1); }
+    .drive-file .df-actions button:hover { color: #f87171; background: rgba(248,113,113,0.1); }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -140,17 +159,35 @@
       <div style="color:#aaa; font-size:0.8rem; margin-top:6px;">Drop files here or click to browse</div>
       <input type="file" id="fileInput" multiple style="display:none;">
     </div>
-    <div id="fileTransfers" style="max-height:200px; overflow-y:auto; margin-top:8px;"></div>
+    <div id="fileTransfers" style="max-height:150px; overflow-y:auto; margin-top:8px;"></div>
+
+    <!-- Download section: files on the shared drive -->
+    <div style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <small class="text-light fw-medium" style="font-size:0.75rem;">
+          <i class="bi bi-cloud-arrow-down me-1"></i>Download from Shared Drive
+        </small>
+        <button class="btn btn-sm btn-outline-light py-0 px-1" onclick="refreshDriveFiles()" title="Refresh">
+          <i class="bi bi-arrow-clockwise" style="font-size:0.7rem;"></i>
+        </button>
+      </div>
+      <div id="driveFileList" style="max-height:160px; overflow-y:auto;">
+        <div style="color:#666; font-size:0.75rem; text-align:center; padding:12px 0;">
+          No files yet
+        </div>
+      </div>
+    </div>
+
     {% if ap.protocol == 'rdp' %}
     <div style="margin-top:8px; padding:6px 8px; background:rgba(255,255,255,0.05); border-radius:4px;">
       <small style="color:#888; font-size:0.7rem;">
-        <i class="bi bi-info-circle me-1"></i>Files appear in <strong>\\tsclient\Shared</strong> on the remote machine
+        <i class="bi bi-info-circle me-1"></i>Copy files to <strong>\\tsclient\Shared</strong> on remote to download here
       </small>
     </div>
     {% elif ap.protocol == 'ssh' %}
     <div style="margin-top:8px; padding:6px 8px; background:rgba(255,255,255,0.05); border-radius:4px;">
       <small style="color:#888; font-size:0.7rem;">
-        <i class="bi bi-info-circle me-1"></i>Files are transferred via SFTP to the remote home directory
+        <i class="bi bi-info-circle me-1"></i>Files are transferred via SFTP
       </small>
     </div>
     {% endif %}
@@ -525,9 +562,51 @@
     if (filePanel.style.display === 'none') {
       filePanel.style.display = 'block';
       clipboardPanel.style.display = 'none';
+      refreshDriveFiles();
     } else {
       filePanel.style.display = 'none';
     }
+  };
+
+  var FILES_URL = '{{ url_for("console.list_files") }}';
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  window.refreshDriveFiles = function() {
+    var list = document.getElementById('driveFileList');
+    list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:8px 0;"><i class="bi bi-arrow-clockwise" style="animation:spin 0.6s linear infinite;"></i></div>';
+    fetch(FILES_URL).then(function(r) { return r.json(); }).then(function(files) {
+      if (!files.length) {
+        list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:12px 0;">No files yet</div>';
+        return;
+      }
+      list.innerHTML = '';
+      files.forEach(function(f) {
+        var div = document.createElement('div');
+        div.className = 'drive-file';
+        var downloadUrl = FILES_URL + '/' + encodeURIComponent(f.name);
+        div.innerHTML =
+          '<i class="bi bi-file-earmark" style="color:#666;"></i>' +
+          '<span class="df-name" title="' + f.name.replace(/"/g, '&quot;') + '">' + f.name + '</span>' +
+          '<span class="df-size">' + formatSize(f.size) + '</span>' +
+          '<span class="df-actions">' +
+            '<a href="' + downloadUrl + '" title="Download"><i class="bi bi-download"></i></a>' +
+            '<button onclick="deleteDriveFile(\'' + f.name.replace(/'/g, "\\'") + '\')" title="Delete"><i class="bi bi-trash3"></i></button>' +
+          '</span>';
+        list.appendChild(div);
+      });
+    }).catch(function() {
+      list.innerHTML = '<div style="color:#f87171;font-size:0.75rem;text-align:center;padding:8px 0;">Failed to load</div>';
+    });
+  };
+
+  window.deleteDriveFile = function(name) {
+    fetch(FILES_URL + '/' + encodeURIComponent(name), { method: 'DELETE' })
+      .then(function() { refreshDriveFiles(); });
   };
 
   // Drag-and-drop

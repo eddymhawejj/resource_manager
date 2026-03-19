@@ -1,17 +1,73 @@
+import os
 import socket
 import threading
 
 from flask import (
     current_app, render_template, abort, request, url_for,
+    jsonify, send_from_directory,
 )
 from flask_login import login_required, current_user
 from flask_sock import Sock
 
-from app.extensions import db
+from app.extensions import csrf, db
 from app.models import AccessPoint, Resource, can_user_access
 from app.console import bp
 
 sock = Sock()
+
+
+def _user_drive_path():
+    """Return the absolute path to the current user's drive directory."""
+    base = os.path.join(current_app.root_path, '..', 'data', 'drive',
+                        str(current_user.id))
+    return os.path.realpath(base)
+
+
+@bp.route('/files')
+@login_required
+def list_files():
+    """List files in the current user's drive directory."""
+    drive = _user_drive_path()
+    if not os.path.isdir(drive):
+        return jsonify([])
+    files = []
+    for name in sorted(os.listdir(drive)):
+        path = os.path.join(drive, name)
+        if os.path.isfile(path):
+            files.append({
+                'name': name,
+                'size': os.path.getsize(path),
+            })
+    return jsonify(files)
+
+
+@bp.route('/files/<path:filename>')
+@login_required
+def download_file(filename):
+    """Download a file from the current user's drive directory."""
+    drive = _user_drive_path()
+    # Prevent path traversal
+    safe = os.path.realpath(os.path.join(drive, filename))
+    if not safe.startswith(drive + os.sep) and safe != drive:
+        abort(403)
+    if not os.path.isfile(safe):
+        abort(404)
+    return send_from_directory(drive, filename, as_attachment=True)
+
+
+@bp.route('/files/<path:filename>', methods=['DELETE'])
+@csrf.exempt
+@login_required
+def delete_file(filename):
+    """Delete a file from the current user's drive directory."""
+    drive = _user_drive_path()
+    safe = os.path.realpath(os.path.join(drive, filename))
+    if not safe.startswith(drive + os.sep) and safe != drive:
+        abort(403)
+    if not os.path.isfile(safe):
+        abort(404)
+    os.remove(safe)
+    return '', 204
 
 
 def init_sock(app):
