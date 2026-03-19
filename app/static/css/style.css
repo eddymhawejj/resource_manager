@@ -268,6 +268,27 @@ body {
   margin-right: 0.25rem;
 }
 
+/* Tag collapse: show count badge by default, expand to full tags on hover */
+.resource-card .card-tag-group .card-tag-badges {
+  max-width: 0;
+  opacity: 0;
+  transition: max-width 0.25s ease, opacity 0.2s ease;
+}
+.resource-card .card-tag-group .card-tag-count {
+  transition: opacity 0.2s ease;
+}
+.resource-card:hover .card-tag-group .card-tag-badges {
+  max-width: 300px;
+  opacity: 1;
+}
+.resource-card:hover .card-tag-group .card-tag-count {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+
 /* ===== Tables ===== */
 .table {
   --bs-table-bg: transparent;

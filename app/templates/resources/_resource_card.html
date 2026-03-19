@@ -1,13 +1,23 @@
 <div class="card resource-card h-100">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-start mb-2">
-      <div class="d-flex align-items-center gap-2">
-        <span class="resource-type">{{ testbed.resource_type }}</span>
-        {% for tag in testbed.tags.all() %}
-        <span class="badge" style="background-color: {{ tag.color }}; font-size: 0.65rem;">{{ tag.name }}</span>
-        {% endfor %}
+      <div class="d-flex align-items-center gap-1 resource-card-tags" style="min-width: 0; overflow: hidden;">
+        <span class="resource-type flex-shrink-0">{{ testbed.resource_type }}</span>
+        {% set tag_list = testbed.tags.all() %}
+        {% if tag_list %}
+        <div class="card-tag-group d-flex align-items-center gap-1" style="min-width: 0;">
+          <span class="badge card-tag-count flex-shrink-0" style="background-color: {{ tag_list[0].color }}; font-size: 0.6rem; cursor: default;" title="{{ tag_list|map(attribute='name')|join(', ') }}">
+            <i class="bi bi-tags-fill me-1"></i>{{ tag_list|length }}
+          </span>
+          <div class="card-tag-badges d-flex gap-1" style="overflow: hidden;">
+            {% for tag in tag_list %}
+            <span class="badge flex-shrink-0" style="background-color: {{ tag.color }}; font-size: 0.65rem;">{{ tag.name }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </div>
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
         <form method="POST" action="{{ url_for('resources.toggle_favorite', resource_id=testbed.id) }}" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm p-0 border-0" style="background:none;" title="{% if testbed.id in fav_ids %}Remove from favorites{% else %}Add to favorites{% endif %}">
