@@ -639,21 +639,16 @@ class AccessPoint(db.Model):
         """Generate a .bat launcher for Windows that stores credentials via cmdkey.
 
         Uses PowerShell to decode a base64-encoded password at runtime so the
-        password is not stored in plaintext in the file.
+        password is not stored in plaintext in the file.  The script expires
+        60 seconds after generation and self-deletes.
         """
+        import time
+        expires_epoch = int(time.time()) + 60
         address = f'{self.hostname}:{self.effective_port}' if self.effective_port != 3389 else self.hostname
         termsrv = f'TERMSRV/{self.hostname}'
         pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
-        ps_store = (
-            f'powershell -NoProfile -Command "'
-            f"$p=[System.Text.Encoding]::UTF8.GetString("
-            f"[System.Convert]::FromBase64String('{pw_b64}'));"
-            f"cmdkey /generic:\\\"{termsrv}\\\" /user:\\\"{self.username}\\\" /pass:$p"
-            f'"'
-        )
-        # Use PowerShell to: store creds, launch mstsc, wait briefly, clean up
-        # all in a single hidden PowerShell process so no cmd window lingers
-        ps_script = (
+        # Expiry check runs visibly; the RDP launch runs hidden
+        ps_connect = (
             f"$p=[System.Text.Encoding]::UTF8.GetString("
             f"[System.Convert]::FromBase64String('{pw_b64}'));"
             f" cmdkey /generic:\\\"{termsrv}\\\" /user:\\\"{self.username}\\\" /pass:$p;"
@@ -661,9 +656,19 @@ class AccessPoint(db.Model):
             f" Start-Sleep -Seconds 5;"
             f" cmdkey /delete:\\\"{termsrv}\\\""
         )
+        expiry_check = (
+            f'powershell -NoProfile -Command "'
+            f"$now=[int][double]::Parse((Get-Date -UFormat '%s'));"
+            f" if($now -gt {expires_epoch})"
+            f"{{ Write-Host 'This connection script has expired. Please download a new one.';"
+            f" pause; exit 1 }}"
+            f'"'
+        )
         lines = [
             '@echo off',
-            f'start /b powershell -NoProfile -WindowStyle Hidden -Command "{ps_script}"',
+            expiry_check,
+            f'if errorlevel 1 (goto) 2>nul & del "%~f0" & exit /b',
+            f'start /b powershell -NoProfile -WindowStyle Hidden -Command "{ps_connect}"',
             '(goto) 2>nul & del "%~f0"',
         ]
         return '\r\n'.join(lines) + '\r\n'
@@ -671,12 +676,20 @@ class AccessPoint(db.Model):
     def generate_rdp_launcher_sh(self):
         """Generate a .sh launcher for Linux/macOS using xfreerdp.
 
-        Uses base64-encoded password decoded at runtime.
+        Uses base64-encoded password decoded at runtime.  The script expires
+        60 seconds after generation and self-deletes.
         """
+        import time
+        expires_epoch = int(time.time()) + 60
         pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
         lines = [
             '#!/bin/bash',
             'SELF="$(realpath "$0")"',
+            f'if [ "$(date +%s)" -gt {expires_epoch} ]; then',
+            '  echo "This connection script has expired. Please download a new one."',
+            '  rm -f "$SELF"',
+            '  exit 1',
+            'fi',
             f"P=$(echo '{pw_b64}' | base64 -d)",
             f'xfreerdp /v:{self.hostname}:{self.effective_port}'
             f' /u:"{self.username}" /p:"$P"'
