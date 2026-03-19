@@ -492,98 +492,40 @@ def topology_data():
     return jsonify({'nodes': nodes, 'edges': edges})
 
 
-def _parse_address_list(raw_text, subnet_cidr=None):
-    """Parse a textarea of addresses into a list of IP strings.
-
-    Supports:
-    - One IP per line
-    - Range notation: 192.168.1.10-80 (expands last octet)
-    - Range notation: 192.168.1.10-192.168.1.80 (full IP range)
-    - Ignores blank lines and strips whitespace
-    """
-    results = []
-    for line in raw_text.strip().splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        if '-' in line:
-            parts = line.split('-', 1)
-            try:
-                start_ip = _ipaddress.ip_address(parts[0].strip())
-                right = parts[1].strip()
-                # Full IP on the right?
-                try:
-                    end_ip = _ipaddress.ip_address(right)
-                except ValueError:
-                    # Short form: only last octet
-                    octets = str(start_ip).rsplit('.', 1)
-                    end_ip = _ipaddress.ip_address(f'{octets[0]}.{right}')
-                if int(end_ip) < int(start_ip):
-                    continue
-                current = int(start_ip)
-                while current <= int(end_ip):
-                    results.append(str(_ipaddress.ip_address(current)))
-                    current += 1
-            except ValueError:
-                # Not a valid range, treat as a single address
-                results.append(line)
-        else:
-            results.append(line)
-    return results
-
-
-@bp.route('/subnets/<int:subnet_id>/bulk-assign', methods=['POST'])
+@bp.route('/vlans/<int:vlan_id>/bulk-reassign', methods=['POST'])
 @login_required
 @admin_required
-def bulk_assign(subnet_id):
-    """Bulk-create ResourceHost entries for a resource from an address list."""
-    subnet = db.session.get(Subnet, subnet_id) or abort(404)
-
+def bulk_reassign(vlan_id):
+    """Reassign selected hosts to a different resource."""
+    vlan = db.session.get(Vlan, vlan_id) or abort(404)
+    host_ids = request.form.getlist('host_ids', type=int)
     resource_id = request.form.get('resource_id', type=int)
+
+    if not host_ids:
+        flash('No hosts selected.', 'warning')
+        return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
+
     if not resource_id:
-        flash('Please select a resource.', 'danger')
-        return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
+        flash('Please select a target resource.', 'danger')
+        return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
     resource = db.session.get(Resource, resource_id)
     if not resource:
         flash('Resource not found.', 'danger')
-        return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
+        return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
-    raw = request.form.get('addresses', '')
-    label_prefix = request.form.get('label_prefix', '').strip()
-    critical = request.form.get('critical') == '1'
-
-    addresses = _parse_address_list(raw, subnet.cidr)
-    if not addresses:
-        flash('No valid addresses provided.', 'warning')
-        return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
-
-    # Check which addresses already exist on this resource
-    existing = {h.address for h in ResourceHost.query.filter_by(resource_id=resource_id).all()}
-
-    created = 0
-    skipped = 0
-    for addr in addresses:
-        if addr in existing:
-            skipped += 1
-            continue
-        host = ResourceHost(
-            resource_id=resource_id,
-            address=addr,
-            label=f'{label_prefix}{addr}' if label_prefix else '',
-            critical=critical,
-            subnet_id=subnet.id,
-        )
-        db.session.add(host)
-        existing.add(addr)
-        created += 1
+    # Only reassign hosts that belong to subnets in this VLAN
+    subnet_ids = {s.id for s in vlan.subnets.all()}
+    updated = 0
+    for host_id in host_ids:
+        host = db.session.get(ResourceHost, host_id)
+        if host and host.subnet_id in subnet_ids:
+            host.resource_id = resource_id
+            updated += 1
 
     db.session.commit()
-    msg = f'{created} host(s) added to {resource.name}.'
-    if skipped:
-        msg += f' {skipped} duplicate(s) skipped.'
-    flash(msg, 'success')
-    return redirect(url_for('network.vlan_detail', vlan_id=subnet.vlan_id))
+    flash(f'{updated} host(s) reassigned to {resource.name}.', 'success')
+    return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
 
 def _auto_link_hosts_to_subnet(subnet):
