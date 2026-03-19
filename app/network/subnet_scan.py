@@ -270,29 +270,23 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             if hostname:
                 existing_resource = Resource.query.filter_by(name=name).first()
                 if existing_resource:
-                    # Update the existing host entry's IP, or add a new host
-                    existing_host = existing_resource.hosts.filter_by(
+                    # Hostname resolved → use hostname as the host address.
+                    # Remove the old IP-based host and ensure a hostname host exists.
+                    existing_ip_host = existing_resource.hosts.filter_by(
                         label='Subnet scan'
                     ).first()
-                    if existing_host:
-                        existing_host.address = ip_str
-                        existing_host.subnet_id = subnet.id
-                    else:
-                        host = ResourceHost(
-                            resource_id=existing_resource.id,
-                            address=ip_str,
-                            label='Subnet scan',
-                            critical=True,
-                            subnet_id=subnet.id,
-                        )
-                        db.session.add(host)
-
-                    # Update the hostname host entry if one exists
                     existing_hostname_host = existing_resource.hosts.filter_by(
                         label='Hostname'
                     ).first()
+
                     if existing_hostname_host:
                         existing_hostname_host.address = hostname
+                        existing_hostname_host.subnet_id = subnet.id
+                    elif existing_ip_host:
+                        # Convert the IP host to a hostname host
+                        existing_ip_host.address = hostname
+                        existing_ip_host.label = 'Hostname'
+                        existing_ip_host.subnet_id = subnet.id
                     else:
                         hostname_host = ResourceHost(
                             resource_id=existing_resource.id,
@@ -302,6 +296,10 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
                             subnet_id=subnet.id,
                         )
                         db.session.add(hostname_host)
+
+                    # Remove leftover IP-based host if hostname host also exists
+                    if existing_hostname_host and existing_ip_host:
+                        db.session.delete(existing_ip_host)
 
                     known_addresses.add(ip_str)
                     known_count += 1
@@ -316,26 +314,25 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             db.session.add(resource)
             db.session.flush()
 
-            host = ResourceHost(
-                resource_id=resource.id,
-                address=ip_str,
-                label='Subnet scan',
-                critical=True,
-                subnet_id=subnet.id,
-            )
-            db.session.add(host)
-
-            # If we resolved a hostname, add it as a second host entry so
-            # monitoring uses the hostname (stable) instead of the IP (DHCP).
+            # If hostname resolved, use it as the host address (stable across
+            # DHCP changes). Otherwise fall back to the IP.
             if hostname:
-                hostname_host = ResourceHost(
+                host = ResourceHost(
                     resource_id=resource.id,
                     address=hostname,
                     label='Hostname',
                     critical=True,
                     subnet_id=subnet.id,
                 )
-                db.session.add(hostname_host)
+            else:
+                host = ResourceHost(
+                    resource_id=resource.id,
+                    address=ip_str,
+                    label='Subnet scan',
+                    critical=True,
+                    subnet_id=subnet.id,
+                )
+            db.session.add(host)
 
             known_addresses.add(ip_str)
             new_hosts.append(ip_str)
@@ -346,22 +343,16 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             new_hosts=len(new_hosts),
         )
 
-    # Backfill hostname host entries for previously discovered hosts that
-    # are missing one (e.g. created before hostname-host logic was added).
+    # Backfill: for existing IP-based hosts, resolve hostname and replace
+    # the IP with the hostname (since the IP may be DHCP-assigned).
     if hosts_needing_hostname:
         _update_progress(phase='resolving', subnet='backfill')
         backfilled = 0
         for rh in hosts_needing_hostname:
             hostname = resolve_hostname(rh.address, snmp_community=snmp_community)
             if hostname:
-                hostname_host = ResourceHost(
-                    resource_id=rh.resource_id,
-                    address=hostname,
-                    label='Hostname',
-                    critical=True,
-                    subnet_id=rh.subnet_id,
-                )
-                db.session.add(hostname_host)
+                rh.address = hostname
+                rh.label = 'Hostname'
                 backfilled += 1
         if backfilled:
             db.session.commit()
