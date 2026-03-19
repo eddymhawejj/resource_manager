@@ -100,7 +100,7 @@ def list_resources():
     if tag_filter:
         query = query.filter(Resource.tags.any(Tag.name == tag_filter))
     testbeds = query.order_by(Resource.name).all()
-    all_tags = Tag.query.order_by(Tag.name).all()
+    all_tags = Tag.query.filter(Tag.resources.any()).order_by(Tag.name).all()
 
     # Get user's favorite resource IDs
     fav_ids = set()
@@ -339,6 +339,7 @@ def delete_host(resource_id, host_id):
 
 def _sync_tags(resource, tag_names):
     """Sync tags for a resource from a list of tag name strings."""
+    old_tags = list(resource.tags)
     resource.tags = []
     for name in tag_names:
         name = name.strip()
@@ -350,6 +351,10 @@ def _sync_tags(resource, tag_names):
             db.session.add(tag)
             db.session.flush()
         resource.tags.append(tag)
+    # Clean up orphaned tags (no longer assigned to any resource)
+    for tag in old_tags:
+        if tag not in resource.tags and not tag.resources:
+            db.session.delete(tag)
 
 
 # ===== Favorites =====
