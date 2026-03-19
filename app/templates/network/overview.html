@@ -26,19 +26,10 @@
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
         <li>
-          <form method="POST" action="{{ url_for('network.scan_subnets') }}" onclick="event.stopPropagation()">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="dropdown-item d-flex align-items-center gap-2 p-2">
-              <button type="submit" class="btn btn-sm btn-outline-warning flex-grow-1 text-start">
-                <i class="bi bi-broadcast me-1"></i>Scan Subnets
-                {% if last_scan %}<small class="text-muted ms-1">{{ last_scan[:16]|replace('T', ' ') }}</small>{% endif %}
-              </button>
-              <div class="form-check form-check-inline m-0" title="Delete all previously discovered devices before scanning">
-                <input class="form-check-input" type="checkbox" name="wipe_devices" value="1" id="wipe-scan">
-                <label class="form-check-label small" for="wipe-scan">Wipe</label>
-              </div>
-            </div>
-          </form>
+          <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#scanSubnetsModal">
+            <i class="bi bi-broadcast me-1 text-warning"></i>Scan Subnets
+            {% if last_scan %}<small class="text-muted ms-1">{{ last_scan[:16]|replace('T', ' ') }}</small>{% endif %}
+          </button>
         </li>
         {% if switch_configured %}
         <li>
@@ -51,18 +42,9 @@
           </form>
         </li>
         <li>
-          <form method="POST" action="{{ url_for('network.discover_now') }}" onclick="event.stopPropagation()">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="dropdown-item d-flex align-items-center gap-2 p-2">
-              <button type="submit" class="btn btn-sm btn-outline-info flex-grow-1 text-start">
-                <i class="bi bi-search me-1"></i>Discover Hosts (LLDP)
-              </button>
-              <div class="form-check form-check-inline m-0" title="Delete all previously discovered devices before discovery">
-                <input class="form-check-input" type="checkbox" name="wipe_devices" value="1" id="wipe-discover">
-                <label class="form-check-label small" for="wipe-discover">Wipe</label>
-              </div>
-            </div>
-          </form>
+          <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#discoverModal">
+            <i class="bi bi-search me-1 text-info"></i>Discover Hosts (LLDP)
+          </button>
         </li>
         {% endif %}
         <li><hr class="dropdown-divider"></li>
@@ -296,4 +278,58 @@
     {% endif %}
   </div>
 </div>
+
+{% if current_user.is_admin %}
+<!-- Scan Subnets Modal -->
+<div class="modal fade" id="scanSubnetsModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('network.scan_subnets') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="wipe_devices" value="" id="scan-wipe-val">
+        <div class="modal-header py-2">
+          <h6 class="modal-title"><i class="bi bi-broadcast me-1 text-warning"></i>Scan Subnets</h6>
+          <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body py-3">
+          <p class="mb-0 small text-muted">Ping-sweep all configured subnets to discover new hosts.</p>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="submit" class="btn btn-sm btn-warning"><i class="bi bi-broadcast me-1"></i>Scan</button>
+          <button type="submit" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('scan-wipe-val').value='1'">
+            <i class="bi bi-trash me-1"></i>Wipe &amp; Scan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% if switch_configured %}
+<!-- Discover Hosts Modal -->
+<div class="modal fade" id="discoverModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('network.discover_now') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="wipe_devices" value="" id="discover-wipe-val">
+        <div class="modal-header py-2">
+          <h6 class="modal-title"><i class="bi bi-search me-1 text-info"></i>Discover Hosts (LLDP)</h6>
+          <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body py-3">
+          <p class="mb-0 small text-muted">Discover hosts via LLDP neighbors and MAC table from the switch.</p>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="submit" class="btn btn-sm btn-info"><i class="bi bi-search me-1"></i>Discover</button>
+          <button type="submit" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('discover-wipe-val').value='1'">
+            <i class="bi bi-trash me-1"></i>Wipe &amp; Discover
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
 {% endblock %}
