@@ -1,5 +1,5 @@
-import selectors
 import socket
+import threading
 
 from flask import (
     current_app, render_template, abort, request, url_for,
@@ -295,7 +295,6 @@ def tunnel(ws, ap_id):
 
         connection_id = parsed[1][0] if parsed[1] else '?'
         log.info(f'[tunnel:{ap_id}] Handshake complete, connection_id={connection_id}')
-        guacd_sock.setblocking(False)
 
     except Exception as e:
         log.error(f'[tunnel:{ap_id}] guacd handshake failed: {e}')
@@ -303,100 +302,85 @@ def tunnel(ws, ap_id):
         _ws_close(ws, 'guacd handshake failed')
         return
 
-    # --- Phase 2: Relay loop ---
+    # --- Phase 2: Threaded relay ---
     #
-    # IMPORTANT: The Guacamole JS parser (WebSocketTunnel.onmessage) does
-    # NOT buffer partial instructions across WebSocket messages.  Each
-    # message must contain only complete instructions (terminated by ';').
-    # If a message ends mid-instruction the parser loses sync and renders
-    # garbage.
+    # Two threads, one per direction, so neither side blocks the other.
     #
-    # So we buffer guacd TCP data and only send up to the last ';' in
-    # each WebSocket message, carrying any trailing partial instruction
-    # over to the next send.
+    # guacd→browser: blocking recv on TCP, buffer until instruction
+    #   boundary (';'), then send complete instructions over WebSocket.
+    # browser→guacd: blocking WebSocket receive, forward to TCP.
+    #
+    # When either side disconnects, the thread exits and signals the
+    # other via shutdown().
 
-    sel = selectors.DefaultSelector()
-    sel.register(guacd_sock, selectors.EVENT_READ)
-    bytes_to_browser = 0
-    bytes_to_guacd = 0
-    msg_count = 0
-    guacd_buf = b''  # Buffer for incomplete instructions
+    guacd_sock.setblocking(True)
+    guacd_sock.settimeout(None)
+    done = threading.Event()
 
-    log.info(f'[tunnel:{ap_id}] Entering relay loop')
-
-    try:
-        while True:
-            # Wait up to 2ms for guacd data
-            events = sel.select(timeout=0.002)
-
-            if events:
-                # Read available data from guacd
-                try:
-                    chunk = guacd_sock.recv(65536)
-                except (BlockingIOError, socket.error):
-                    chunk = None
-                if chunk == b'':
-                    log.info(f'[tunnel:{ap_id}] guacd disconnected '
-                             f'(sent {bytes_to_browser}B to browser, '
-                             f'{bytes_to_guacd}B to guacd)')
-                    return  # guacd disconnected
-                if chunk:
-                    guacd_buf += chunk
-
-            # Send only complete instructions to the browser
-            if guacd_buf:
-                # Find the last instruction boundary
-                last_semi = guacd_buf.rfind(b';')
-                if last_semi >= 0:
-                    # Send everything up to and including the last ';'
-                    to_send = guacd_buf[:last_semi + 1]
-                    guacd_buf = guacd_buf[last_semi + 1:]
-
-                    text = to_send.decode('utf-8', errors='replace')
-                    bytes_to_browser += len(to_send)
-                    msg_count += 1
-                    if msg_count <= 5:
-                        log.info(f'[tunnel:{ap_id}] <- guacd '
-                                 f'({len(to_send)}B): {text[:200]}')
-                        parsed = _parse_instruction(text)
-                        if parsed and parsed[0] == 'error':
-                            log.error(f'[tunnel:{ap_id}] guacd error: '
-                                      f'{parsed[1]}')
-                    ws.send(text)
-
-            # Non-blocking check for browser data
-            try:
-                data = ws.receive(timeout=0)
-            except Exception as e:
-                log.info(f'[tunnel:{ap_id}] Browser disconnected: '
-                         f'{type(e).__name__}: {e} '
-                         f'(sent {bytes_to_browser}B to browser, '
-                         f'{bytes_to_guacd}B to guacd)')
-                return  # browser disconnected
-            if data is None:
-                continue
-
-            raw = data.encode('utf-8') if isinstance(data, str) else data
-
-            # Filter out Guacamole internal tunnel instructions (opcode "").
-            # The JS client sends these as keep-alive pings (e.g.
-            # "0.,4.ping,...;") which guacd doesn't understand and may
-            # cause it to drop the connection.
-            if raw.startswith(b'0.'):
-                continue
-
-            bytes_to_guacd += len(raw)
-            guacd_sock.sendall(raw)
-
-    except Exception as e:
-        log.error(f'[tunnel:{ap_id}] Relay error: {type(e).__name__}: {e}')
-    finally:
-        log.info(f'[tunnel:{ap_id}] Tunnel closed '
-                 f'(sent {bytes_to_browser}B to browser, '
-                 f'{bytes_to_guacd}B to guacd)')
-        sel.close()
+    def guacd_to_browser():
+        """Forward guacd TCP data to browser WebSocket."""
+        buf = b''
         try:
-            guacd_sock.close()
-        except Exception:
-            pass
-        _ws_close(ws)
+            while not done.is_set():
+                chunk = guacd_sock.recv(65536)
+                if not chunk:
+                    log.info(f'[tunnel:{ap_id}] guacd disconnected')
+                    break
+                buf += chunk
+                # Only send complete instructions (up to last ';')
+                last_semi = buf.rfind(b';')
+                if last_semi >= 0:
+                    to_send = buf[:last_semi + 1]
+                    buf = buf[last_semi + 1:]
+                    ws.send(to_send.decode('utf-8', errors='replace'))
+        except Exception as e:
+            if not done.is_set():
+                log.debug(f'[tunnel:{ap_id}] guacd→browser ended: '
+                          f'{type(e).__name__}: {e}')
+        finally:
+            done.set()
+            try:
+                _ws_close(ws)
+            except Exception:
+                pass
+
+    def browser_to_guacd():
+        """Forward browser WebSocket data to guacd TCP."""
+        try:
+            while not done.is_set():
+                data = ws.receive()
+                if data is None:
+                    log.info(f'[tunnel:{ap_id}] Browser disconnected')
+                    break
+                raw = data.encode('utf-8') if isinstance(data, str) else data
+                # Filter internal tunnel keepalives (empty opcode)
+                if raw.startswith(b'0.'):
+                    continue
+                guacd_sock.sendall(raw)
+        except Exception as e:
+            if not done.is_set():
+                log.debug(f'[tunnel:{ap_id}] browser→guacd ended: '
+                          f'{type(e).__name__}: {e}')
+        finally:
+            done.set()
+            try:
+                guacd_sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+
+    log.info(f'[tunnel:{ap_id}] Starting relay threads')
+    t_g2b = threading.Thread(target=guacd_to_browser, daemon=True)
+    t_b2g = threading.Thread(target=browser_to_guacd, daemon=True)
+    t_g2b.start()
+    t_b2g.start()
+
+    # Wait for both threads to finish
+    t_g2b.join()
+    t_b2g.join()
+
+    log.info(f'[tunnel:{ap_id}] Tunnel closed')
+    try:
+        guacd_sock.close()
+    except Exception:
+        pass
+    _ws_close(ws)
