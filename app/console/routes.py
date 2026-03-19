@@ -204,12 +204,18 @@ def tunnel(ws, ap_id):
             'security': 'any',
             'ignore-cert': 'true',
             'enable-font-smoothing': 'true',
+            'enable-drive': 'true',
+            'drive-path': '/drive',
+            'drive-name': 'Shared',
+            'create-drive-path': 'true',
         })
     elif ap.protocol == 'ssh':
         connect_params.update({
             'color-scheme': 'gray-black',
             'font-size': '14',
             'terminal-type': 'xterm-256color',
+            'enable-sftp': 'true',
+            'sftp-root-directory': '/drive',
         })
 
     # Update access tracking
