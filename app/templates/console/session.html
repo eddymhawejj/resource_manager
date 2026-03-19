@@ -206,7 +206,12 @@
       sendScaledMouseState(mouseState);
     };
 
-    client.connect('');
+    // Send actual browser dimensions so guacd uses the right resolution
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.round(window.innerWidth * dpr);
+    var h = Math.round(window.innerHeight * dpr);
+    var dpi = Math.round(96 * dpr);
+    client.connect('width=' + w + '&height=' + h + '&dpi=' + dpi);;
   }
 
   function fitDisplay() {

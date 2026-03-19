@@ -2,7 +2,7 @@ import selectors
 import socket
 
 from flask import (
-    current_app, render_template, abort, url_for,
+    current_app, render_template, abort, request, url_for,
 )
 from flask_login import login_required, current_user
 from flask_sock import Sock
@@ -245,8 +245,13 @@ def tunnel(ws, ap_id):
         args_list = parsed[1]
 
         # Step 3: Send size, audio, video, image, connect
+        # Use browser's actual dimensions if provided, else default
+        client_width = request.args.get('width', '1920')
+        client_height = request.args.get('height', '1080')
+        client_dpi = request.args.get('dpi', '96')
+        log.info(f'[tunnel:{ap_id}] Client size: {client_width}x{client_height} @ {client_dpi}dpi')
         for instr_name, instr_args in [
-            ('size', ['1920', '1080', '96']),
+            ('size', [client_width, client_height, client_dpi]),
             ('audio', ['audio/L16']),
             ('video', []),
             ('image', []),
@@ -292,6 +297,11 @@ def tunnel(ws, ap_id):
         return
 
     # --- Phase 2: Relay loop ---
+    #
+    # Performance-critical: avoid blocking on either side.
+    #   - Use select() with a short timeout to wait for guacd data
+    #   - Use ws.receive(timeout=0) for non-blocking browser reads
+    #   - Drain all available guacd data before checking browser
 
     sel = selectors.DefaultSelector()
     sel.register(guacd_sock, selectors.EVENT_READ)
@@ -303,28 +313,37 @@ def tunnel(ws, ap_id):
 
     try:
         while True:
-            # Check if guacd has data to send to browser
-            events = sel.select(timeout=0)
-            for key, mask in events:
-                try:
-                    chunk = guacd_sock.recv(65536)
-                except (BlockingIOError, socket.error):
-                    chunk = None
-                if not chunk:
-                    log.info(f'[tunnel:{ap_id}] guacd disconnected '
-                             f'(sent {bytes_to_browser}B to browser, '
-                             f'{bytes_to_guacd}B to guacd)')
-                    return  # guacd disconnected
-                bytes_to_browser += len(chunk)
-                msg_count += 1
-                if msg_count <= 3:
-                    log.debug(f'[tunnel:{ap_id}] <- guacd ({len(chunk)}B): '
-                              f'{chunk[:80]}')
-                ws.send(chunk.decode('utf-8', errors='replace'))
+            # Wait up to 2ms for guacd data (keeps latency low while
+            # avoiding a busy spin)
+            events = sel.select(timeout=0.002)
 
-            # Check if browser has data to send to guacd
+            if events:
+                # Drain all available data from guacd into one buffer
+                chunks = []
+                while True:
+                    try:
+                        chunk = guacd_sock.recv(65536)
+                    except (BlockingIOError, socket.error):
+                        break
+                    if not chunk:
+                        log.info(f'[tunnel:{ap_id}] guacd disconnected '
+                                 f'(sent {bytes_to_browser}B to browser, '
+                                 f'{bytes_to_guacd}B to guacd)')
+                        return  # guacd disconnected
+                    chunks.append(chunk)
+
+                if chunks:
+                    batch = b''.join(chunks)
+                    bytes_to_browser += len(batch)
+                    msg_count += 1
+                    if msg_count <= 3:
+                        log.debug(f'[tunnel:{ap_id}] <- guacd ({len(batch)}B): '
+                                  f'{batch[:80]}')
+                    ws.send(batch.decode('utf-8', errors='replace'))
+
+            # Non-blocking check for browser data
             try:
-                data = ws.receive(timeout=0.02)
+                data = ws.receive(timeout=0)
             except Exception as e:
                 log.info(f'[tunnel:{ap_id}] Browser disconnected: '
                          f'{type(e).__name__}: {e} '
