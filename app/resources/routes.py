@@ -766,9 +766,13 @@ def connect_access_point(resource_id, ap_id):
     db.session.commit()
 
     if ap.protocol == 'rdp':
+        ua = request.headers.get('User-Agent', '')
+        ext = 'bat' if 'Windows' in ua else 'sh'
+        fname = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.{ext}'
         return jsonify({
             'protocol': 'rdp',
             'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+            'rdp_filename': fname,
         })
     else:
         # SSH: return command, password only for admins
@@ -857,9 +861,13 @@ def force_connect_access_point(resource_id, ap_id):
     db.session.commit()
 
     if ap.protocol == 'rdp':
+        ua = request.headers.get('User-Agent', '')
+        ext = 'bat' if 'Windows' in ua else 'sh'
+        fname = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.{ext}'
         return jsonify({
             'protocol': 'rdp',
             'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+            'rdp_filename': fname,
         })
     else:
         result = {
