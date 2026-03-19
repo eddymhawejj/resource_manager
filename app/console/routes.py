@@ -201,18 +201,9 @@ def tunnel(ws, ap_id):
     }
     if ap.protocol == 'rdp':
         connect_params.update({
-            'security': 'nla',
+            'security': 'any',
             'ignore-cert': 'true',
-            'disable-auth': 'false',
-            'resize-method': 'reconnect',
             'enable-font-smoothing': 'true',
-            'enable-wallpaper': 'false',
-            'enable-theming': 'true',
-            'enable-desktop-composition': 'false',
-            'enable-menu-animations': 'false',
-            'enable-full-window-drag': 'false',
-            'color-depth': '24',
-            'client-name': 'ResourceManager',
         })
     elif ap.protocol == 'ssh':
         connect_params.update({
