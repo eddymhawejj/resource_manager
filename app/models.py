@@ -640,16 +640,24 @@ class AccessPoint(db.Model):
 
         The password 51:b field in .rdp files uses Windows DPAPI which is
         machine/user-specific and cannot be generated from a Linux server.
-        Instead, this creates a batch script that:
-        1. Stores credentials with cmdkey
-        2. Launches mstsc with the RDP connection
-        3. Cleans up stored credentials after the session
+        Instead, this creates a batch script that uses PowerShell to decode
+        a base64-encoded password at runtime, so the password is not stored
+        in plaintext in the file.
         """
         address = f'{self.hostname}:{self.effective_port}' if self.effective_port != 3389 else self.hostname
         termsrv = f'TERMSRV/{self.hostname}'
+        pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
+        # PowerShell decodes the base64 password and passes it to cmdkey
+        ps_store = (
+            f'powershell -NoProfile -Command "'
+            f"$p=[System.Text.Encoding]::UTF8.GetString("
+            f"[System.Convert]::FromBase64String('{pw_b64}'));"
+            f"cmdkey /generic:\\\"{termsrv}\\\" /user:\\\"{self.username}\\\" /pass:$p"
+            f'"'
+        )
         lines = [
             '@echo off',
-            f'cmdkey /generic:"{termsrv}" /user:"{self.username}" /pass:"{self.password}"',
+            ps_store,
             f'mstsc /v:"{address}"',
             'timeout /t 5 /nobreak >nul',
             f'cmdkey /delete:"{termsrv}"',
