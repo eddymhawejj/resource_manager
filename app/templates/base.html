@@ -201,6 +201,28 @@
     </div>
   </div>
 
+  <!-- Force Connect Confirmation Modal -->
+  <div class="modal fade" id="forceConnectModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h6 class="modal-title"><i class="bi bi-exclamation-triangle me-1 text-warning"></i>Force Connect</h6>
+          <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body py-3">
+          <p class="mb-1 small">Are you sure you want to take over this session?</p>
+          <p class="mb-0 small text-muted"><strong id="force-connect-booker-name"></strong> currently has this testbed booked and will be notified by email.</p>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-warning" id="force-connect-confirm-btn">
+            <i class="bi bi-box-arrow-in-right me-1"></i>Force Connect
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Quick Book Modal -->
   <div class="modal fade" id="quickBookModal" tabindex="-1">
     <div class="modal-dialog">

@@ -372,21 +372,30 @@ function connectAccess(resourceId, apId, protocol) {
 }
 
 function forceConnect(resourceId, apId, protocol, bookerName) {
-  if (!confirm('Are you sure you want to take over this session?\n\n' + bookerName + ' currently has this testbed booked and will be notified by email.')) {
-    return;
-  }
-  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
-                  document.querySelector('meta[name="csrf-token"]')?.content || '';
+  // Show confirmation modal instead of browser confirm()
+  var modal = document.getElementById('forceConnectModal');
+  document.getElementById('force-connect-booker-name').textContent = bookerName;
+  var confirmBtn = document.getElementById('force-connect-confirm-btn');
+  // Replace old listener by cloning the button
+  var newBtn = confirmBtn.cloneNode(true);
+  confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+  newBtn.addEventListener('click', function () {
+    var bsModal = bootstrap.Modal.getInstance(modal);
+    if (bsModal) bsModal.hide();
 
-  fetch('/resources/' + resourceId + '/access-points/' + apId + '/force-connect', {
-    method: 'POST',
-    headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
-  })
-  .then(function (r) { return r.json(); })
-  .then(function (data) { _handleConnectResponse(data, csrfToken); })
-  .catch(function (err) {
-    showToast('Failed to connect: ' + err, 'danger');
+    var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
+                    document.querySelector('meta[name="csrf-token"]')?.content || '';
+    fetch('/resources/' + resourceId + '/access-points/' + apId + '/force-connect', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) { _handleConnectResponse(data, csrfToken); })
+    .catch(function (err) {
+      showToast('Failed to connect: ' + err, 'danger');
+    });
   });
+  new bootstrap.Modal(modal).show();
 }
 
 function copyToClipboard(text, btn) {
