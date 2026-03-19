@@ -54,7 +54,9 @@ def overview():
     from app.network.switch_sync import is_switch_configured
     vlans = Vlan.query.order_by(Vlan.number).all()
     unlinked_hosts = ResourceHost.query.filter_by(subnet_id=None).all()
-    discovered_devices = Resource.query.filter_by(resource_type='device').order_by(Resource.name).all()
+    discovered_devices = Resource.query.filter_by(resource_type='device').filter(
+        Resource.parent_id.is_(None)
+    ).order_by(Resource.name).all()
     last_sync = AppSettings.get('switch_last_sync', '')
     last_discovery = AppSettings.get('switch_last_discovery', '')
     last_scan = AppSettings.get('subnet_last_scan', '')
@@ -532,6 +534,9 @@ def bulk_reassign(vlan_id):
             skipped += 1
             continue
         res.parent_id = parent_id
+        # Auto-promote discovered devices so they leave the "Discovered" tab
+        if res.resource_type == 'device':
+            res.resource_type = 'other'
         updated += 1
 
     db.session.commit()
