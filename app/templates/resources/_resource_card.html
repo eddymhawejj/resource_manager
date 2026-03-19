@@ -54,8 +54,9 @@
       {% if testbed.max_concurrent_bookings > 1 %}
       <span title="Max concurrent bookings"><i class="bi bi-layers"></i>{{ testbed.max_concurrent_bookings }} slots</span>
       {% endif %}
-      {% if testbed.access_points.count() %}
-      <span title="Has access points"><i class="bi bi-plug"></i>{{ testbed.access_points.count() }} access</span>
+      {% set card_aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points.filter_by(is_enabled=True).all() %}
+      {% if card_aps %}
+      <span title="Has access points"><i class="bi bi-plug"></i>{{ card_aps|length }} access</span>
       {% endif %}
     </div>
   </div>
@@ -64,7 +65,7 @@
       <i class="bi bi-eye me-1"></i>Details
     </a>
     <div class="d-flex gap-1">
-      {% set aps = testbed.access_points.filter_by(is_enabled=True).all() %}
+      {% set aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points.filter_by(is_enabled=True).all() %}
       {% if aps|length == 1 %}
       <button class="btn btn-sm btn-outline-{% if aps[0].protocol == 'rdp' %}info{% else %}dark{% endif %}"
               onclick="connectAccess({{ testbed.id }}, {{ aps[0].id }}, '{{ aps[0].protocol }}')"

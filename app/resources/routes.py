@@ -107,8 +107,21 @@ def list_resources():
     if current_user.is_authenticated:
         fav_ids = {f.resource_id for f in Favorite.query.filter_by(user_id=current_user.id).all()}
 
+    # Precompute access points per testbed (own + children + shared children)
+    testbed_aps = {}
+    for tb in testbeds:
+        child_ids = [c.id for c in tb.children]
+        shared_ids = [a.child_id for a in tb.shared_child_assignments]
+        all_ids = [tb.id] + child_ids + shared_ids
+        aps = AccessPoint.query.filter(
+            AccessPoint.resource_id.in_(all_ids), AccessPoint.is_enabled == True
+        ).all()
+        if aps:
+            testbed_aps[tb.id] = aps
+
     return render_template('resources/list.html', testbeds=testbeds, all_tags=all_tags,
-                           current_tag=tag_filter, fav_ids=fav_ids)
+                           current_tag=tag_filter, fav_ids=fav_ids,
+                           testbed_aps=testbed_aps)
 
 
 @bp.route('/<int:resource_id>')
