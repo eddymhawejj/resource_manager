@@ -191,3 +191,46 @@ def send_booking_cancellation(booking):
         logger.info(f'Cancellation email with calendar update sent to {booking.user.email}')
     except Exception as e:
         logger.error(f'Failed to send cancellation email: {e}')
+
+
+def send_force_disconnect_notification(displaced_user, access_point, forced_by_user):
+    """Notify a user that they were force-disconnected from a resource."""
+    if not _is_smtp_configured():
+        logger.info('SMTP not configured, skipping force-disconnect notification')
+        return
+
+    _update_mail_config()
+
+    try:
+        resource = access_point.resource
+        protocol = access_point.protocol.upper()
+        subject = f'Disconnected: {resource.name} ({protocol})'
+
+        msg = Message(
+            subject=subject,
+            recipients=[displaced_user.email],
+        )
+
+        msg.body = (
+            f'Hi {displaced_user.display_name},\n\n'
+            f'{forced_by_user.display_name} has taken over {protocol} access to "{resource.name}" '
+            f'via {access_point.hostname}.\n\n'
+            f'Your session may have been disconnected. If this was unexpected, please contact your admin.\n'
+        )
+
+        msg.html = (
+            f'<h3>You were disconnected from {resource.name}</h3>'
+            f'<table style="border-collapse: collapse;">'
+            f'<tr><td style="padding: 4px 12px; font-weight: bold;">Resource:</td><td>{resource.name}</td></tr>'
+            f'<tr><td style="padding: 4px 12px; font-weight: bold;">Protocol:</td><td>{protocol}</td></tr>'
+            f'<tr><td style="padding: 4px 12px; font-weight: bold;">Host:</td><td>{access_point.hostname}</td></tr>'
+            f'<tr><td style="padding: 4px 12px; font-weight: bold;">Taken over by:</td><td>{forced_by_user.display_name}</td></tr>'
+            f'</table>'
+            f'<p style="margin-top: 12px; color: #666;">Your session may have been disconnected. '
+            f'If this was unexpected, please contact your administrator.</p>'
+        )
+
+        mail.send(msg)
+        logger.info(f'Force-disconnect notification sent to {displaced_user.email}')
+    except Exception as e:
+        logger.error(f'Failed to send force-disconnect notification: {e}')

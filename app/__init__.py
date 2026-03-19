@@ -439,6 +439,29 @@ def _auto_migrate(db):
         ))
         db.session.commit()
 
+    # Create access_points table if missing
+    if 'access_points' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE access_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_id INTEGER NOT NULL REFERENCES resources(id),
+                protocol VARCHAR(20) NOT NULL DEFAULT 'rdp',
+                hostname VARCHAR(255) NOT NULL,
+                port INTEGER,
+                username VARCHAR(100) DEFAULT '',
+                password_b64 TEXT DEFAULT '',
+                display_name VARCHAR(100) DEFAULT '',
+                is_enabled BOOLEAN DEFAULT 1,
+                last_accessed_by INTEGER REFERENCES users(id),
+                last_accessed_at DATETIME,
+                created_at DATETIME
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_access_points_resource_id ON access_points (resource_id)'
+        ))
+        db.session.commit()
+
 
 def register_cli(app):
     import click

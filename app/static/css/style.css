@@ -909,6 +909,16 @@ body {
   font-size: 0.8rem;
 }
 
+/* ===== Access Point Buttons ===== */
+.ap-connect-btn {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.ap-connect-btn:disabled {
+  cursor: not-allowed;
+}
+
 @media (max-width: 991.98px) {
   #global-search {
     width: 140px;

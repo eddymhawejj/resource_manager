@@ -1,3 +1,4 @@
+import base64
 import ipaddress
 import json
 import uuid
@@ -338,6 +339,18 @@ class Booking(db.Model):
             self.calendar_uid = str(uuid.uuid4())
         return self.calendar_uid
 
+    @staticmethod
+    def user_has_active_booking(user_id, resource_id):
+        """Check if user has a confirmed booking active right now for this resource."""
+        now = datetime.now(timezone.utc)
+        return Booking.query.filter(
+            Booking.resource_id == resource_id,
+            Booking.user_id == user_id,
+            Booking.status == 'confirmed',
+            Booking.start_time <= now,
+            Booking.end_time >= now,
+        ).first() is not None
+
     def has_conflict(self):
         """Check if this booking conflicts with existing confirmed bookings.
 
@@ -539,3 +552,107 @@ class WaitlistEntry(db.Model):
 
     def __repr__(self):
         return f'<WaitlistEntry user={self.user_id} resource={self.resource_id}>'
+
+
+# ===== Access Points =====
+_DEFAULT_PORTS = {'rdp': 3389, 'ssh': 22}
+
+
+class AccessPoint(db.Model):
+    __tablename__ = 'access_points'
+
+    id = db.Column(db.Integer, primary_key=True)
+    resource_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    protocol = db.Column(db.String(20), nullable=False, default='rdp')  # 'rdp' or 'ssh'
+    hostname = db.Column(db.String(255), nullable=False)
+    port = db.Column(db.Integer, nullable=True)  # NULL = protocol default
+    username = db.Column(db.String(100), default='')
+    _password = db.Column('password_b64', db.Text, default='')  # base64-encoded
+    display_name = db.Column(db.String(100), default='')
+    is_enabled = db.Column(db.Boolean, default=True)
+    last_accessed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    last_accessed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    resource = db.relationship('Resource', backref=db.backref('access_points', lazy='dynamic',
+                                                              cascade='all, delete-orphan'))
+    last_user = db.relationship('User', foreign_keys=[last_accessed_by])
+
+    @property
+    def password(self):
+        if not self._password:
+            return ''
+        try:
+            return base64.b64decode(self._password.encode()).decode()
+        except Exception:
+            return self._password
+
+    @password.setter
+    def password(self, value):
+        if value:
+            self._password = base64.b64encode(value.encode()).decode()
+        else:
+            self._password = ''
+
+    @property
+    def effective_port(self):
+        return self.port or _DEFAULT_PORTS.get(self.protocol, 0)
+
+    @property
+    def label(self):
+        return self.display_name or f'{self.protocol.upper()} ({self.hostname})'
+
+    def generate_rdp_file(self):
+        """Generate .rdp file content for Windows Remote Desktop."""
+        lines = [
+            f'full address:s:{self.hostname}:{self.effective_port}',
+            f'username:s:{self.username}',
+            'prompt for credentials:i:0',
+            'authentication level:i:0',
+            'enablecredsspsupport:i:1',
+            'screen mode id:i:2',
+            'desktopwidth:i:1920',
+            'desktopheight:i:1080',
+            'session bpp:i:32',
+            'use multimon:i:0',
+            'auto connect:i:1',
+            'networkautodetect:i:1',
+            'bandwidthautodetect:i:1',
+        ]
+        return '\r\n'.join(lines) + '\r\n'
+
+    def generate_ssh_command(self):
+        """Generate the SSH command string."""
+        cmd = 'ssh'
+        if self.effective_port != 22:
+            cmd += f' -p {self.effective_port}'
+        if self.username:
+            cmd += f' {self.username}@{self.hostname}'
+        else:
+            cmd += f' {self.hostname}'
+        return cmd
+
+    def __repr__(self):
+        return f'<AccessPoint {self.protocol}://{self.hostname} for resource {self.resource_id}>'
+
+
+def can_user_access(user, resource):
+    """Check if user can access a resource's access points.
+
+    Requires an active confirmed booking on the resource itself,
+    or on any parent testbed (exclusive or shared).
+    Admins always have access.
+    """
+    if user.is_admin:
+        return True
+    # Direct booking on this resource
+    if Booking.user_has_active_booking(user.id, resource.id):
+        return True
+    # Exclusive parent
+    if resource.parent_id and Booking.user_has_active_booking(user.id, resource.parent_id):
+        return True
+    # Shared parent testbeds
+    for a in resource.shared_parent_assignments.all():
+        if Booking.user_has_active_booking(user.id, a.parent_id):
+            return True
+    return False

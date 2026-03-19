@@ -1,13 +1,14 @@
 import re
 from datetime import datetime, timezone
 
-from flask import render_template, redirect, url_for, flash, abort, request
+from flask import render_template, redirect, url_for, flash, abort, request, Response, jsonify
 from flask_login import login_required, current_user
 
 from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
-from app.models import Resource, ResourceHost, ResourceAssignment, AuditLog, Tag, Favorite, MaintenanceWindow, AlertRule
+from app.models import (Resource, ResourceHost, ResourceAssignment, AuditLog, Tag, Favorite,
+                        MaintenanceWindow, AlertRule, AccessPoint, Booking, can_user_access)
 
 
 def _is_valid_host(value):
@@ -139,13 +140,37 @@ def detail(resource_id):
             Resource.resource_type != 'device',
         ).order_by(Resource.name).all()
 
+    # Access points: own + children's (for testbeds)
+    own_access_points = AccessPoint.query.filter_by(resource_id=resource_id, is_enabled=True).all()
+    child_access_points = []
+    if resource.is_testbed:
+        child_ids = [c.id for c in children]
+        child_ids += [a.child_id for a in shared_assignments]
+        if child_ids:
+            child_access_points = AccessPoint.query.filter(
+                AccessPoint.resource_id.in_(child_ids), AccessPoint.is_enabled == True
+            ).all()
+    all_access_points = own_access_points + child_access_points
+    all_access_points_admin = AccessPoint.query.filter_by(resource_id=resource_id).all() if current_user.is_admin else []
+
+    # Check if user has an active booking for this testbed
+    testbed_id = resource_id if resource.is_testbed else resource.parent_id
+    has_active_booking = False
+    if testbed_id:
+        has_active_booking = Booking.user_has_active_booking(current_user.id, testbed_id)
+    can_access = current_user.is_admin or has_active_booking
+
     return render_template('resources/detail.html', resource=resource, children=children,
                            host_form=host_form, is_favorited=is_favorited,
                            active_maintenance=active_maintenance,
                            alert_rules=alert_rules, all_tags=all_tags,
                            shared_assignments=shared_assignments,
                            shared_parents=shared_parents,
-                           assignable_resources=assignable_resources)
+                           assignable_resources=assignable_resources,
+                           all_access_points=all_access_points,
+                           all_access_points_admin=all_access_points_admin,
+                           has_active_booking=has_active_booking,
+                           can_access=can_access)
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -509,3 +534,204 @@ def unassign_shared_child(resource_id, assignment_id):
     db.session.commit()
     flash(f'"{child_name}" unassigned from this testbed.', 'info')
     return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+# ===== Access Points =====
+def _find_testbed_for_resource(resource):
+    """Return the testbed resource_id to check bookings against."""
+    if resource.is_testbed:
+        return resource.id
+    if resource.parent_id:
+        return resource.parent_id
+    # Check shared parents
+    a = resource.shared_parent_assignments.first()
+    if a:
+        return a.parent_id
+    return resource.id
+
+
+def _can_access_check(resource):
+    """Return True if current user can access this resource's access points."""
+    if current_user.is_admin:
+        return True
+    testbed_id = _find_testbed_for_resource(resource)
+    return Booking.user_has_active_booking(current_user.id, testbed_id)
+
+
+@bp.route('/<int:resource_id>/access-points/add', methods=['POST'])
+@login_required
+@admin_required
+def add_access_point(resource_id):
+    resource = db.session.get(Resource, resource_id) or abort(404)
+    protocol = request.form.get('ap_protocol', 'rdp').strip().lower()
+    if protocol not in ('rdp', 'ssh'):
+        flash('Protocol must be rdp or ssh.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+    hostname = request.form.get('ap_hostname', '').strip()
+    if not hostname:
+        flash('Hostname is required.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+    port_str = request.form.get('ap_port', '').strip()
+    port = int(port_str) if port_str else None
+    username = request.form.get('ap_username', '').strip()
+    password = request.form.get('ap_password', '').strip()
+    display_name = request.form.get('ap_display_name', '').strip()
+
+    ap = AccessPoint(
+        resource_id=resource_id,
+        protocol=protocol,
+        hostname=hostname,
+        port=port,
+        username=username,
+        display_name=display_name,
+    )
+    ap.password = password
+    db.session.add(ap)
+    AuditLog.log('access_point.create', 'access_point', None,
+                 {'resource_id': resource_id, 'protocol': protocol, 'hostname': hostname},
+                 user_id=current_user.id)
+    db.session.commit()
+    flash(f'Access point "{ap.label}" added.', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def edit_access_point(resource_id, ap_id):
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    if ap.resource_id != resource_id:
+        abort(404)
+    ap.protocol = request.form.get('ap_protocol', ap.protocol).strip().lower()
+    ap.hostname = request.form.get('ap_hostname', ap.hostname).strip()
+    port_str = request.form.get('ap_port', '').strip()
+    ap.port = int(port_str) if port_str else None
+    ap.username = request.form.get('ap_username', ap.username).strip()
+    new_password = request.form.get('ap_password', '').strip()
+    if new_password:
+        ap.password = new_password
+    ap.display_name = request.form.get('ap_display_name', ap.display_name).strip()
+    ap.is_enabled = 'ap_enabled' in request.form
+    db.session.commit()
+    flash(f'Access point updated.', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_access_point(resource_id, ap_id):
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    if ap.resource_id != resource_id:
+        abort(404)
+    label = ap.label
+    AuditLog.log('access_point.delete', 'access_point', ap_id,
+                 {'resource_id': resource_id, 'label': label},
+                 user_id=current_user.id)
+    db.session.delete(ap)
+    db.session.commit()
+    flash(f'Access point "{label}" removed.', 'info')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/connect', methods=['POST'])
+@login_required
+def connect_access_point(resource_id, ap_id):
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    resource = db.session.get(Resource, ap.resource_id) or abort(404)
+
+    if not _can_access_check(resource):
+        flash('You need an active booking to connect. Book this testbed first.', 'warning')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    # Update tracking
+    ap.last_accessed_by = current_user.id
+    ap.last_accessed_at = datetime.now(timezone.utc)
+    AuditLog.log('access.connect', 'access_point', ap_id,
+                 {'resource_id': resource_id, 'protocol': ap.protocol},
+                 user_id=current_user.id)
+    db.session.commit()
+
+    if ap.protocol == 'rdp':
+        rdp_content = ap.generate_rdp_file()
+        filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
+        return Response(
+            rdp_content,
+            mimetype='application/x-rdp',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        )
+    else:
+        # SSH: return JSON for the modal
+        return jsonify({
+            'protocol': 'ssh',
+            'command': ap.generate_ssh_command(),
+            'password': ap.password,
+            'hostname': ap.hostname,
+            'port': ap.effective_port,
+            'username': ap.username,
+        })
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/force-connect', methods=['POST'])
+@login_required
+def force_connect_access_point(resource_id, ap_id):
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    resource = db.session.get(Resource, ap.resource_id) or abort(404)
+
+    if not _can_access_check(resource):
+        flash('You need an active booking to connect.', 'warning')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    # Notify displaced user
+    displaced_user = None
+    if ap.last_accessed_by and ap.last_accessed_by != current_user.id:
+        from app.models import User
+        displaced_user = db.session.get(User, ap.last_accessed_by)
+        if displaced_user:
+            try:
+                from app.email_service import send_force_disconnect_notification
+                send_force_disconnect_notification(displaced_user, ap, current_user)
+            except Exception:
+                pass
+            AuditLog.log('access.force_connect', 'access_point', ap_id,
+                         {'resource_id': resource_id, 'displaced_user_id': displaced_user.id,
+                          'displaced_user': displaced_user.display_name},
+                         user_id=current_user.id)
+
+    # Update tracking
+    ap.last_accessed_by = current_user.id
+    ap.last_accessed_at = datetime.now(timezone.utc)
+    if not displaced_user:
+        AuditLog.log('access.connect', 'access_point', ap_id,
+                     {'resource_id': resource_id, 'protocol': ap.protocol},
+                     user_id=current_user.id)
+    db.session.commit()
+
+    if ap.protocol == 'rdp':
+        rdp_content = ap.generate_rdp_file()
+        filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
+        return Response(
+            rdp_content,
+            mimetype='application/x-rdp',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+        )
+    else:
+        return jsonify({
+            'protocol': 'ssh',
+            'command': ap.generate_ssh_command(),
+            'password': ap.password,
+            'hostname': ap.hostname,
+            'port': ap.effective_port,
+            'username': ap.username,
+        })
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/password', methods=['POST'])
+@login_required
+def get_access_point_password(resource_id, ap_id):
+    """Return the password for clipboard copy before RDP download."""
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    resource = db.session.get(Resource, ap.resource_id) or abort(404)
+    if not _can_access_check(resource):
+        return jsonify({'error': 'No active booking'}), 403
+    return jsonify({'password': ap.password})

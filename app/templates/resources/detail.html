@@ -98,6 +98,138 @@
   </div>
 
   <div class="col-lg-4">
+    <!-- Access Points -->
+    {% if all_access_points or (current_user.is_admin and all_access_points_admin is defined) %}
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-plug me-2"></i>Access Points ({{ all_access_points|length }})</span>
+        {% if current_user.is_admin %}
+        <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#ap-admin-form">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        {% if all_access_points %}
+        <ul class="list-group list-group-flush">
+          {% for ap in all_access_points %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <div>
+                <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>
+                <span class="fw-medium">{{ ap.display_name or (ap.protocol|upper + ' - ' + ap.hostname) }}</span>
+                {% if ap.resource_id != resource.id %}
+                <small class="text-muted ms-1">({{ ap.resource.name }})</small>
+                {% endif %}
+              </div>
+              <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %}">{{ ap.protocol|upper }}</span>
+            </div>
+            <div class="d-flex align-items-center gap-1 mt-2">
+              {% if can_access %}
+                {% if ap.last_accessed_by and ap.last_accessed_by != current_user.id and ap.last_user %}
+                <button class="btn btn-sm btn-warning ap-connect-btn" onclick="forceConnect({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}', '{{ ap.last_user.display_name|e }}')" title="Force connect (will notify {{ ap.last_user.display_name }})">
+                  <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Force Connect
+                </button>
+                {% else %}
+                <button class="btn btn-sm btn-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %} ap-connect-btn" onclick="connectAccess({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}')" title="Connect via {{ ap.protocol|upper }}">
+                  <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Connect
+                </button>
+                {% endif %}
+              {% else %}
+                <button class="btn btn-sm btn-secondary ap-connect-btn" disabled title="Book this testbed to unlock access">
+                  <i class="bi bi-lock me-1"></i>Book to connect
+                </button>
+              {% endif %}
+            </div>
+            {% if ap.last_user %}
+            <small class="text-muted d-block mt-1">
+              <i class="bi bi-person-check me-1"></i>Last: {{ ap.last_user.display_name }}
+              {% if ap.last_accessed_at %}
+              <span class="ms-1">{{ ap.last_accessed_at.strftime('%m/%d %H:%M') }}</span>
+              {% endif %}
+            </small>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="p-3 text-center">
+          <small class="text-muted">No access points configured</small>
+        </div>
+        {% endif %}
+      </div>
+      {% if current_user.is_admin %}
+      <!-- Admin: Add/Manage Access Points -->
+      <div class="collapse" id="ap-admin-form">
+        <div class="card-footer bg-transparent">
+          <h6 class="small text-muted mb-2">Add Access Point</h6>
+          <form method="POST" action="{{ url_for('resources.add_access_point', resource_id=resource.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-2 mb-2">
+              <div class="col-6">
+                <select name="protocol" class="form-select form-select-sm">
+                  <option value="rdp">RDP</option>
+                  <option value="ssh">SSH</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <input type="text" name="hostname" class="form-control form-control-sm" placeholder="IP / hostname" required>
+              </div>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-4">
+                <input type="number" name="port" class="form-control form-control-sm" placeholder="Port">
+              </div>
+              <div class="col-4">
+                <input type="text" name="username" class="form-control form-control-sm" placeholder="Username">
+              </div>
+              <div class="col-4">
+                <input type="password" name="password" class="form-control form-control-sm" placeholder="Password">
+              </div>
+            </div>
+            <div class="row g-2">
+              <div class="col-8">
+                <input type="text" name="display_name" class="form-control form-control-sm" placeholder="Display name (optional)">
+              </div>
+              <div class="col-4">
+                <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add</button>
+              </div>
+            </div>
+          </form>
+        </div>
+        {% if all_access_points_admin %}
+        <div class="card-footer bg-transparent border-top">
+          <h6 class="small text-muted mb-2">Manage Access Points</h6>
+          {% for ap in all_access_points_admin %}
+          <div class="d-flex justify-content-between align-items-center py-1 {% if not loop.last %}border-bottom{% endif %}">
+            <small>
+              <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %} me-1">{{ ap.protocol|upper }}</span>
+              {{ ap.display_name or ap.hostname }}
+              {% if not ap.is_enabled %}<span class="badge bg-secondary ms-1">Disabled</span>{% endif %}
+            </small>
+            <div class="d-flex gap-1">
+              <form method="POST" action="{{ url_for('resources.edit_access_point', resource_id=resource.id, ap_id=ap.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="is_enabled" value="{{ 'false' if ap.is_enabled else 'true' }}">
+                <button type="submit" class="btn btn-sm btn-outline-{% if ap.is_enabled %}warning{% else %}success{% endif %} py-0 px-1" title="{% if ap.is_enabled %}Disable{% else %}Enable{% endif %}">
+                  <i class="bi bi-{% if ap.is_enabled %}pause{% else %}play{% endif %}"></i>
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for('resources.delete_access_point', resource_id=resource.id, ap_id=ap.id) }}"
+                    class="d-inline" onsubmit="return confirm('Delete this access point?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Hosts -->
     <div class="card mb-4">
       <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts.count() }})</div>

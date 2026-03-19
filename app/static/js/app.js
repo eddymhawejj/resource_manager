@@ -322,6 +322,146 @@ function exportTableToCSV(tableEl, filename) {
   URL.revokeObjectURL(link.href);
 }
 
+// ===== Access Point Connect =====
+function connectAccess(resourceId, apId, protocol) {
+  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
+                  document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  if (protocol === 'rdp') {
+    // First copy password to clipboard, then trigger RDP download
+    fetch('/resources/' + resourceId + '/access-points/' + apId + '/password', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.password) {
+        navigator.clipboard.writeText(data.password).then(function () {
+          showToast('Password copied to clipboard', 'success');
+        }).catch(function () {
+          showToast('Password: ' + data.password, 'info');
+        });
+      }
+      // Trigger RDP file download via form submit
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/resources/' + resourceId + '/access-points/' + apId + '/connect';
+      var csrf = document.createElement('input');
+      csrf.type = 'hidden';
+      csrf.name = 'csrf_token';
+      csrf.value = csrfToken;
+      form.appendChild(csrf);
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+    })
+    .catch(function (err) {
+      showToast('Failed to connect: ' + err, 'danger');
+    });
+  } else {
+    // SSH: fetch connection details and show modal
+    fetch('/resources/' + resourceId + '/access-points/' + apId + '/connect', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      document.getElementById('ssh-command').value = data.command || '';
+      document.getElementById('ssh-password').value = data.password || '';
+      // Reset password visibility
+      var pwField = document.getElementById('ssh-password');
+      pwField.type = 'password';
+      new bootstrap.Modal(document.getElementById('sshModal')).show();
+    })
+    .catch(function (err) {
+      showToast('Failed to connect: ' + err, 'danger');
+    });
+  }
+}
+
+function forceConnect(resourceId, apId, protocol, currentUserName) {
+  if (!confirm('This will disconnect ' + currentUserName + ' and notify them by email. Continue?')) {
+    return;
+  }
+  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
+                  document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  if (protocol === 'rdp') {
+    fetch('/resources/' + resourceId + '/access-points/' + apId + '/password', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.password) {
+        navigator.clipboard.writeText(data.password).catch(function () {});
+        showToast('Password copied to clipboard', 'success');
+      }
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/resources/' + resourceId + '/access-points/' + apId + '/force-connect';
+      var csrf = document.createElement('input');
+      csrf.type = 'hidden';
+      csrf.name = 'csrf_token';
+      csrf.value = csrfToken;
+      form.appendChild(csrf);
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+    });
+  } else {
+    fetch('/resources/' + resourceId + '/access-points/' + apId + '/force-connect', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      document.getElementById('ssh-command').value = data.command || '';
+      document.getElementById('ssh-password').value = data.password || '';
+      var pwField = document.getElementById('ssh-password');
+      pwField.type = 'password';
+      new bootstrap.Modal(document.getElementById('sshModal')).show();
+    })
+    .catch(function (err) {
+      showToast('Failed to connect: ' + err, 'danger');
+    });
+  }
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(function () {
+    var origIcon = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check"></i>';
+    setTimeout(function () { btn.innerHTML = origIcon; }, 1500);
+  });
+}
+
+function togglePasswordVisibility(fieldId, btn) {
+  var field = document.getElementById(fieldId);
+  if (field.type === 'password') {
+    field.type = 'text';
+    btn.innerHTML = '<i class="bi bi-eye-slash"></i>';
+  } else {
+    field.type = 'password';
+    btn.innerHTML = '<i class="bi bi-eye"></i>';
+  }
+}
+
+function showToast(message, category) {
+  var container = document.getElementById('toast-container');
+  if (!container) return;
+  var icons = { success: 'check-circle', danger: 'exclamation-triangle', warning: 'exclamation-circle', info: 'info-circle' };
+  var toast = document.createElement('div');
+  toast.className = 'toast align-items-center text-bg-' + (category || 'info') + ' border-0';
+  toast.setAttribute('role', 'alert');
+  toast.innerHTML = '<div class="d-flex"><div class="toast-body"><i class="bi bi-' +
+    (icons[category] || 'info-circle') + ' me-1"></i>' + escapeHtml(message) +
+    '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+  container.appendChild(toast);
+  new bootstrap.Toast(toast, { delay: 5000 }).show();
+  toast.addEventListener('hidden.bs.toast', function () { toast.remove(); });
+}
+
 // ===== Booking Calendar Init =====
 function initCalendar(elementId, eventsUrl) {
   const calendarEl = document.getElementById(elementId);
