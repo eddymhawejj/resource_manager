@@ -7,6 +7,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <script src="{{ url_for('static', filename='js/guacamole-common.js') }}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
@@ -91,9 +92,19 @@
     <span class="badge bg-{{ 'primary' if ap.protocol == 'rdp' else 'dark' }}">{{ ap.protocol|upper }}</span>
     <div class="separator"></div>
     {% if ap.protocol == 'rdp' %}
-    <button class="btn btn-outline-light btn-sm" onclick="sendCtrlAltDel()" title="Ctrl+Alt+Del">
-      <i class="bi bi-keyboard me-1"></i>C-A-D
-    </button>
+    <div class="dropdown" style="display:inline-block;">
+      <button class="btn btn-outline-light btn-sm dropdown-toggle" data-bs-toggle="dropdown" title="Send system keys">
+        <i class="bi bi-keyboard"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-dark" style="font-size:0.8rem;">
+        <li><a class="dropdown-item" href="#" onclick="sendKey(0xFFEB);return false"><kbd>Win</kbd> Start Menu</a></li>
+        <li><a class="dropdown-item" href="#" onclick="sendKey(0xFFEB,'down');sendKey(0xFF09,'press');sendKey(0xFFEB,'up');return false"><kbd>Win+Tab</kbd> Task View</a></li>
+        <li><a class="dropdown-item" href="#" onclick="sendKey(0xFFE9,'down');sendKey(0xFF09,'press');sendKey(0xFFE9,'up');return false"><kbd>Alt+Tab</kbd> Switch Window</a></li>
+        <li><a class="dropdown-item" href="#" onclick="sendKey(0xFF1B);return false"><kbd>Esc</kbd> Escape</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="#" onclick="sendCtrlAltDel();return false"><kbd>Ctrl+Alt+Del</kbd></a></li>
+      </ul>
+    </div>
     {% endif %}
     <button class="btn btn-outline-light btn-sm" onclick="toggleClipboard()" title="Clipboard sync">
       <i class="bi bi-clipboard"></i>
@@ -349,12 +360,20 @@
     connect();
   };
 
+  // Send a single key or modifier combo to the remote session.
+  // mode: 'press' (default) = down+up, 'down' = press only, 'up' = release only
+  window.sendKey = function(keysym, mode) {
+    if (!client) return;
+    mode = mode || 'press';
+    if (mode === 'down' || mode === 'press') client.sendKeyEvent(1, keysym);
+    if (mode === 'up' || mode === 'press') client.sendKeyEvent(0, keysym);
+  };
+
   window.sendCtrlAltDel = function() {
     if (!client) return;
-    // Key codes for Ctrl+Alt+Del
-    client.sendKeyEvent(1, 0xFFE3); // Ctrl
-    client.sendKeyEvent(1, 0xFFE9); // Alt
-    client.sendKeyEvent(1, 0xFFFF); // Delete
+    client.sendKeyEvent(1, 0xFFE3); // Ctrl down
+    client.sendKeyEvent(1, 0xFFE9); // Alt down
+    client.sendKeyEvent(1, 0xFFFF); // Delete down
     client.sendKeyEvent(0, 0xFFFF);
     client.sendKeyEvent(0, 0xFFE9);
     client.sendKeyEvent(0, 0xFFE3);
