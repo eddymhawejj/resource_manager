@@ -496,35 +496,49 @@ def topology_data():
 @login_required
 @admin_required
 def bulk_reassign(vlan_id):
-    """Reassign selected hosts to a different resource."""
+    """Assign the resources that own the selected hosts as children of a parent testbed."""
     vlan = db.session.get(Vlan, vlan_id) or abort(404)
     host_ids = request.form.getlist('host_ids', type=int)
-    resource_id = request.form.get('resource_id', type=int)
+    parent_id = request.form.get('resource_id', type=int)
 
     if not host_ids:
         flash('No hosts selected.', 'warning')
         return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
-    if not resource_id:
-        flash('Please select a target resource.', 'danger')
+    if not parent_id:
+        flash('Please select a parent resource.', 'danger')
         return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
-    resource = db.session.get(Resource, resource_id)
-    if not resource:
+    parent = db.session.get(Resource, parent_id)
+    if not parent:
         flash('Resource not found.', 'danger')
         return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
-    # Only reassign hosts that belong to subnets in this VLAN
+    # Collect unique resources from selected hosts (only hosts in this VLAN's subnets)
     subnet_ids = {s.id for s in vlan.subnets.all()}
-    updated = 0
+    resources_to_assign = set()
     for host_id in host_ids:
         host = db.session.get(ResourceHost, host_id)
-        if host and host.subnet_id in subnet_ids:
-            host.resource_id = resource_id
-            updated += 1
+        if host and host.subnet_id in subnet_ids and host.resource_id != parent_id:
+            resources_to_assign.add(host.resource_id)
+
+    updated = 0
+    skipped = 0
+    for rid in resources_to_assign:
+        res = db.session.get(Resource, rid)
+        if not res:
+            continue
+        if res.parent_id == parent_id:
+            skipped += 1
+            continue
+        res.parent_id = parent_id
+        updated += 1
 
     db.session.commit()
-    flash(f'{updated} host(s) reassigned to {resource.name}.', 'success')
+    msg = f'{updated} resource(s) assigned as children of {parent.name}.'
+    if skipped:
+        msg += f' {skipped} already assigned.'
+    flash(msg, 'success')
     return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
 

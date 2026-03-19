@@ -181,7 +181,7 @@
     <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
       <span id="bulkCount" class="fw-medium text-nowrap">0 selected</span>
       <select id="bulkResource" class="form-select form-select-sm" style="min-width: 220px;">
-        <option value="">-- Assign to resource --</option>
+        <option value="">-- Assign to parent --</option>
         {% for r in resources %}
         <option value="{{ r.id }}">{{ r.name }}{% if r.parent %} ({{ r.parent.name }}){% endif %}</option>
         {% endfor %}
@@ -246,7 +246,7 @@
 
   submitBtn.addEventListener('click', function() {
     var rid = resourceSel.value;
-    if (!rid) { alert('Please select a target resource.'); return; }
+    if (!rid) { alert('Please select a parent resource.'); return; }
     var checked = document.querySelectorAll('.bulk-host-cb:checked');
     if (!checked.length) return;
     var form = document.createElement('form');
