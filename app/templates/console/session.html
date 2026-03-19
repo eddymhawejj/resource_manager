@@ -371,7 +371,13 @@
 
   window.toggleFullscreen = function() {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(function(){});
+      document.documentElement.requestFullscreen().then(function() {
+        // Lock keyboard so system keys (Start, Alt+Tab, etc.) are
+        // forwarded to the page instead of handled by the OS/browser.
+        if (navigator.keyboard && navigator.keyboard.lock) {
+          navigator.keyboard.lock().catch(function(){});
+        }
+      }).catch(function(){});
     } else {
       document.exitFullscreen().catch(function(){});
     }
@@ -400,6 +406,10 @@
       icon.className = 'bi bi-fullscreen-exit';
     } else {
       icon.className = 'bi bi-fullscreen';
+      // Release keyboard lock when leaving fullscreen
+      if (navigator.keyboard && navigator.keyboard.unlock) {
+        navigator.keyboard.unlock();
+      }
     }
     // Small delay to let the browser finish layout, then scale locally
     setTimeout(fitDisplay, 100);
