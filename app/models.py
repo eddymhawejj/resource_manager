@@ -77,16 +77,13 @@ class Resource(db.Model):
 
     @property
     def host_statuses(self):
-        """Return list of (host, status) for all hosts."""
+        """Return list of (host, status) for all hosts.
+
+        A host is only 'offline' if the last 3 consecutive pings all failed.
+        """
         results = []
         for host in self.hosts.all():
-            ping = host.latest_ping
-            if ping is None:
-                results.append((host, 'unknown'))
-            elif ping.is_reachable:
-                results.append((host, 'online'))
-            else:
-                results.append((host, 'offline'))
+            results.append((host, host.ping_status))
         return results
 
     @property
@@ -103,13 +100,7 @@ class Resource(db.Model):
             for host in host_list:
                 if not host.critical:
                     continue
-                ping = host.latest_ping
-                if ping is None:
-                    critical_statuses.append('unknown')
-                elif ping.is_reachable:
-                    critical_statuses.append('online')
-                else:
-                    critical_statuses.append('offline')
+                critical_statuses.append(host.ping_status)
 
             # If no critical hosts, treat as unknown (informational-only hosts)
             if not critical_statuses:
@@ -311,9 +302,32 @@ class ResourceHost(db.Model):
         if subnet:
             self.subnet_id = subnet.id
 
+    # Number of consecutive failures before marking a host offline
+    OFFLINE_THRESHOLD = 3
+
     @property
     def latest_ping(self):
         return self.ping_results.first()
+
+    @property
+    def ping_status(self):
+        """Return 'online', 'offline', or 'unknown'.
+
+        Requires OFFLINE_THRESHOLD consecutive failures before reporting
+        offline, to avoid flapping on a single timeout.
+        """
+        recent_pings = self.ping_results.limit(self.OFFLINE_THRESHOLD).all()
+        if not recent_pings:
+            return 'unknown'
+        if recent_pings[0].is_reachable:
+            return 'online'
+        # Latest ping failed — only report offline if the last N all failed
+        if len(recent_pings) >= self.OFFLINE_THRESHOLD and all(
+            not p.is_reachable for p in recent_pings
+        ):
+            return 'offline'
+        # Not enough consecutive failures yet — still considered online
+        return 'online'
 
     def __repr__(self):
         return f'<ResourceHost {self.label or self.address}>'
