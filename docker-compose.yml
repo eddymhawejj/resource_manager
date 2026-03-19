@@ -3,7 +3,7 @@ services:
     image: guacamole/guacd:1.5.5
     restart: unless-stopped
     user: root
-    entrypoint: ["/bin/sh", "-c", "umask 0000 && exec /opt/guacamole/sbin/guacd -b 0.0.0.0 -L $$GUACD_LOG_LEVEL -f"]
+    entrypoint: ["/bin/sh", "-c", "umask 0000 && exec /opt/guacamole/sbin/guacd -b 0.0.0.0 -L info -f"]
     ports:
       - "4822:4822"
     volumes:
