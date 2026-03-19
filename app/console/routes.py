@@ -392,6 +392,13 @@ def tunnel(ws, ap_id):
             'drive-path': container_drive,
             'drive-name': 'Shared',
             'create-drive-path': 'true',
+            # Performance: disable heavy Windows desktop effects
+            'disable-wallpaper': 'true',
+            'disable-theming': 'true',
+            'disable-full-window-drag': 'true',
+            'disable-menu-animations': 'true',
+            'disable-bitmap-caching': 'false',
+            'resize-method': 'display-update',
         })
     elif ap.protocol == 'ssh':
         connect_params.update({
@@ -536,9 +543,6 @@ def tunnel(ws, ap_id):
                     log.info(f'[tunnel:{ap_id}] Browser disconnected')
                     break
                 raw = data.encode('utf-8') if isinstance(data, str) else data
-                # Filter internal tunnel keepalives (empty opcode)
-                if raw.startswith(b'0.'):
-                    continue
                 guacd_sock.sendall(raw)
         except Exception as e:
             if not done.is_set():
