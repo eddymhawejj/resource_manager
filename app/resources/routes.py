@@ -7,7 +7,7 @@ from flask_login import login_required, current_user
 from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
-from app.models import Resource, ResourceHost, AuditLog, Tag, Favorite, MaintenanceWindow, AlertRule
+from app.models import Resource, ResourceHost, ResourceAssignment, AuditLog, Tag, Favorite, MaintenanceWindow, AlertRule
 
 
 def _is_valid_host(value):
@@ -123,10 +123,29 @@ def detail(resource_id):
     ).order_by(MaintenanceWindow.start_time).all()
     alert_rules = AlertRule.query.filter_by(resource_id=resource_id).all()
     all_tags = Tag.query.order_by(Tag.name).all()
+
+    # Shared children (via resource_assignments)
+    shared_assignments = ResourceAssignment.query.filter_by(parent_id=resource_id).all()
+    # Shared parents (testbeds this resource is assigned to)
+    shared_parents = ResourceAssignment.query.filter_by(child_id=resource_id).all()
+    # Available resources for assigning as shared children (exclude self, existing children, existing assignments)
+    assignable_resources = []
+    if resource.is_testbed and current_user.is_authenticated and current_user.is_admin:
+        existing_child_ids = {c.id for c in children}
+        existing_assignment_ids = {a.child_id for a in shared_assignments}
+        exclude_ids = existing_child_ids | existing_assignment_ids | {resource_id}
+        assignable_resources = Resource.query.filter(
+            Resource.id.notin_(exclude_ids),
+            Resource.resource_type != 'device',
+        ).order_by(Resource.name).all()
+
     return render_template('resources/detail.html', resource=resource, children=children,
                            host_form=host_form, is_favorited=is_favorited,
                            active_maintenance=active_maintenance,
-                           alert_rules=alert_rules, all_tags=all_tags)
+                           alert_rules=alert_rules, all_tags=all_tags,
+                           shared_assignments=shared_assignments,
+                           shared_parents=shared_parents,
+                           assignable_resources=assignable_resources)
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -412,3 +431,81 @@ def delete_tag(tag_id):
     db.session.commit()
     flash(f'Tag deleted.', 'info')
     return redirect(request.referrer or url_for('resources.list_resources'))
+
+
+# ===== Shared Resource Assignments =====
+@bp.route('/<int:resource_id>/assign', methods=['POST'])
+@login_required
+@admin_required
+def assign_shared_child(resource_id):
+    """Assign a shared child resource to this testbed with a slot count."""
+    resource = db.session.get(Resource, resource_id) or abort(404)
+    if not resource.is_testbed:
+        abort(400)
+    child_id = request.form.get('child_id', type=int)
+    slots = request.form.get('slots', 1, type=int)
+    notes = request.form.get('assignment_notes', '').strip()
+
+    if not child_id or child_id == resource_id:
+        flash('Invalid resource selected.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    child = db.session.get(Resource, child_id)
+    if not child:
+        flash('Resource not found.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    existing = ResourceAssignment.query.filter_by(parent_id=resource_id, child_id=child_id).first()
+    if existing:
+        flash(f'"{child.name}" is already assigned to this testbed.', 'warning')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    slots = max(1, min(slots, 100))
+    assignment = ResourceAssignment(
+        parent_id=resource_id,
+        child_id=child_id,
+        slots=slots,
+        notes=notes,
+    )
+    db.session.add(assignment)
+    AuditLog.log('resource.assign', 'resource', resource_id,
+                 {'child_id': child_id, 'child_name': child.name, 'slots': slots},
+                 user_id=current_user.id)
+    db.session.commit()
+    flash(f'"{child.name}" assigned as shared resource with {slots} slot(s).', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/assign/<int:assignment_id>/update', methods=['POST'])
+@login_required
+@admin_required
+def update_assignment(resource_id, assignment_id):
+    """Update the slot count on a shared resource assignment."""
+    assignment = db.session.get(ResourceAssignment, assignment_id) or abort(404)
+    if assignment.parent_id != resource_id:
+        abort(404)
+    slots = request.form.get('slots', 1, type=int)
+    slots = max(1, min(slots, 100))
+    assignment.slots = slots
+    assignment.notes = request.form.get('assignment_notes', assignment.notes).strip()
+    db.session.commit()
+    flash(f'Slot count updated to {slots}.', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/assign/<int:assignment_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def unassign_shared_child(resource_id, assignment_id):
+    """Remove a shared child resource assignment."""
+    assignment = db.session.get(ResourceAssignment, assignment_id) or abort(404)
+    if assignment.parent_id != resource_id:
+        abort(404)
+    child_name = assignment.child.name
+    AuditLog.log('resource.unassign', 'resource', resource_id,
+                 {'child_id': assignment.child_id, 'child_name': child_name},
+                 user_id=current_user.id)
+    db.session.delete(assignment)
+    db.session.commit()
+    flash(f'"{child_name}" unassigned from this testbed.', 'info')
+    return redirect(url_for('resources.detail', resource_id=resource_id))

@@ -145,8 +145,74 @@ class Resource(db.Model):
             return False
         return None
 
+    @property
+    def all_children(self):
+        """Return exclusive children (via parent_id) + shared children (via assignments)."""
+        exclusive = list(self.children.all())
+        shared = [a.child for a in self.shared_child_assignments.all()]
+        seen = {c.id for c in exclusive}
+        for c in shared:
+            if c.id not in seen:
+                exclusive.append(c)
+                seen.add(c.id)
+        return exclusive
+
+    @property
+    def all_parents(self):
+        """Return all parents: primary (via parent_id) + shared (via assignments)."""
+        parents = []
+        if self.parent:
+            parents.append(self.parent)
+        seen = {p.id for p in parents}
+        for a in self.shared_parent_assignments.all():
+            if a.parent_id not in seen:
+                parents.append(a.parent)
+                seen.add(a.parent_id)
+        return parents
+
+    @property
+    def max_concurrent_bookings(self):
+        """Max concurrent bookings based on the minimum slot allocation across shared children.
+
+        If the testbed has no shared-child assignments, returns 1 (standard single booking).
+        """
+        assignments = self.shared_child_assignments.all()
+        if not assignments:
+            return 1
+        return min(a.slots for a in assignments)
+
     def __repr__(self):
         return f'<Resource {self.name}>'
+
+
+class ResourceAssignment(db.Model):
+    """Many-to-many link between parent testbeds and shared child resources.
+
+    Each assignment has a `slots` count controlling how many concurrent bookings
+    of the parent testbed are allowed. A testbed's effective capacity is the
+    minimum `slots` value across all its shared-child assignments (defaults to 1
+    when there are no shared children).
+    """
+    __tablename__ = 'resource_assignments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    child_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=False, index=True)
+    slots = db.Column(db.Integer, nullable=False, default=1)
+    notes = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (db.UniqueConstraint('parent_id', 'child_id', name='uq_assignment_parent_child'),)
+
+    parent = db.relationship('Resource', foreign_keys=[parent_id],
+                             backref=db.backref('shared_child_assignments', lazy='dynamic',
+                                                cascade='all, delete-orphan'))
+    child = db.relationship('Resource', foreign_keys=[child_id],
+                            backref=db.backref('shared_parent_assignments', lazy='dynamic',
+                                               cascade='all, delete-orphan'))
+
+    def __repr__(self):
+        return f'<ResourceAssignment parent={self.parent_id} child={self.child_id} slots={self.slots}>'
 
 
 class Vlan(db.Model):
@@ -273,15 +339,22 @@ class Booking(db.Model):
         return self.calendar_uid
 
     def has_conflict(self):
-        """Check if this booking conflicts with existing confirmed bookings."""
-        conflicts = Booking.query.filter(
+        """Check if this booking conflicts with existing confirmed bookings.
+
+        Respects the resource's max_concurrent_bookings (driven by shared-child
+        slot assignments).  A testbed with N slots allows up to N overlapping
+        confirmed bookings before flagging a conflict.
+        """
+        overlapping = Booking.query.filter(
             Booking.resource_id == self.resource_id,
             Booking.status == 'confirmed',
             Booking.id != self.id,
             Booking.start_time < self.end_time,
             Booking.end_time > self.start_time,
-        ).first()
-        return conflicts is not None
+        ).count()
+        resource = db.session.get(Resource, self.resource_id)
+        max_slots = resource.max_concurrent_bookings if resource else 1
+        return overlapping >= max_slots
 
     def __repr__(self):
         return f'<Booking {self.title} ({self.start_time} - {self.end_time})>'

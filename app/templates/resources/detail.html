@@ -369,11 +369,11 @@
 </div>
 {% endif %}
 
-<!-- Child Resources -->
+<!-- Child Resources (exclusive) -->
 {% if resource.is_testbed %}
-<div class="card">
+<div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-diagram-3 me-2"></i>Child Resources ({{ children|length }})</span>
+    <span><i class="bi bi-diagram-3 me-2"></i>Exclusive Children ({{ children|length }})</span>
     {% if current_user.is_admin %}
     <a href="{{ url_for('resources.add_child', testbed_id=resource.id) }}" class="btn btn-sm btn-primary">
       <i class="bi bi-plus-lg me-1"></i>Add Child
@@ -391,7 +391,7 @@
             <th>Type</th>
             <th>Hosts</th>
             <th>Location</th>
-            {% if current_user.is_admin %}<th>Actions</th>{% endif %}
+            {% if current_user.is_admin %}<th data-no-sort>Actions</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -441,9 +441,165 @@
     {% else %}
     <div class="empty-state py-4">
       <i class="bi bi-diagram-3 d-block" style="font-size: 2rem;"></i>
-      <p class="text-muted mb-0">No child resources yet</p>
+      <p class="text-muted mb-0">No exclusive child resources yet</p>
     </div>
     {% endif %}
+  </div>
+</div>
+
+<!-- Shared Resources -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <i class="bi bi-share me-2"></i>Shared Resources ({{ shared_assignments|length }})
+      {% if shared_assignments %}
+      <span class="badge bg-info ms-1" title="Max concurrent bookings for this testbed">
+        {{ resource.max_concurrent_bookings }} slot{{ 's' if resource.max_concurrent_bookings != 1 }}
+      </span>
+      {% endif %}
+    </span>
+  </div>
+  <div class="card-body p-0">
+    {% if shared_assignments %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Hosts</th>
+            <th>Slots</th>
+            <th>Notes</th>
+            {% if current_user.is_admin %}<th data-no-sort>Actions</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in shared_assignments %}
+          {% set child = a.child %}
+          <tr>
+            <td>
+              <span hx-get="{{ url_for('monitoring.resource_status', resource_id=child.id) }}"
+                    hx-trigger="load, every 30s"
+                    hx-swap="innerHTML">
+                <span class="badge-status badge-unknown"><span class="status-dot unknown"></span></span>
+              </span>
+            </td>
+            <td>
+              <a href="{{ url_for('resources.detail', resource_id=child.id) }}" class="text-decoration-none fw-medium">
+                {{ child.name }}
+              </a>
+              {% set other_parents = child.shared_parent_assignments.filter(child.shared_parent_assignments.property.entity.class_.parent_id != resource.id).count() %}
+              {% if child.shared_parent_assignments.count() > 1 %}
+              <small class="text-muted ms-1">(shared with {{ child.shared_parent_assignments.count() - 1 }} other{{ 's' if child.shared_parent_assignments.count() > 2 }})</small>
+              {% endif %}
+            </td>
+            <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
+            <td>
+              {% set child_hosts = child.hosts.all() %}
+              {% if child_hosts %}
+                {% for h in child_hosts %}
+                <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if current_user.is_admin %}
+              <form method="POST" action="{{ url_for('resources.update_assignment', resource_id=resource.id, assignment_id=a.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" name="slots" value="{{ a.slots }}" min="1" max="100" class="form-control form-control-sm d-inline-block" style="width: 60px;"
+                       onchange="this.form.submit()">
+              </form>
+              {% else %}
+              <span class="badge bg-primary">{{ a.slots }}</span>
+              {% endif %}
+            </td>
+            <td><small class="text-muted">{{ a.notes or '-' }}</small></td>
+            {% if current_user.is_admin %}
+            <td>
+              <form method="POST" action="{{ url_for('resources.unassign_shared_child', resource_id=resource.id, assignment_id=a.id) }}"
+                    class="d-inline" onsubmit="return confirm('Unassign this shared resource?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Unassign"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state py-4">
+      <i class="bi bi-share d-block" style="font-size: 2rem;"></i>
+      <p class="text-muted mb-0">No shared resources assigned</p>
+      <p class="empty-hint">Shared resources can belong to multiple testbeds. Each assignment has a slot count controlling concurrent bookings.</p>
+    </div>
+    {% endif %}
+  </div>
+  {% if current_user.is_admin and assignable_resources %}
+  <div class="card-footer bg-transparent">
+    <form method="POST" action="{{ url_for('resources.assign_shared_child', resource_id=resource.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label class="form-label small">Shared Resource</label>
+        <select name="child_id" class="form-select form-select-sm" required>
+          <option value="">Select resource...</option>
+          {% for r in assignable_resources %}
+          <option value="{{ r.id }}">{{ r.name }} ({{ r.resource_type }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Slots</label>
+        <input type="number" name="slots" class="form-control form-control-sm" value="1" min="1" max="100">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">Notes</label>
+        <input type="text" name="assignment_notes" class="form-control form-control-sm" placeholder="e.g. ports 1-4">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Assign</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Shared With (for non-testbed resources showing which testbeds they're assigned to) -->
+{% if shared_parents %}
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-share me-2"></i>Shared With ({{ shared_parents|length }} testbed{{ 's' if shared_parents|length != 1 }})
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Testbed</th>
+            <th>Slots</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in shared_parents %}
+          <tr>
+            <td>
+              <a href="{{ url_for('resources.detail', resource_id=a.parent.id) }}" class="text-decoration-none fw-medium">
+                {{ a.parent.name }}
+              </a>
+            </td>
+            <td><span class="badge bg-primary">{{ a.slots }}</span></td>
+            <td><small class="text-muted">{{ a.notes or '-' }}</small></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endif %}

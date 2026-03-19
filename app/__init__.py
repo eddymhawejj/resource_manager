@@ -418,6 +418,27 @@ def _auto_migrate(db):
         ))
         db.session.commit()
 
+    # Create resource_assignments table if missing (shared children with slots)
+    if 'resource_assignments' not in inspector.get_table_names():
+        db.session.execute(sqlalchemy.text('''
+            CREATE TABLE resource_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER NOT NULL REFERENCES resources(id),
+                child_id INTEGER NOT NULL REFERENCES resources(id),
+                slots INTEGER NOT NULL DEFAULT 1,
+                notes TEXT DEFAULT '',
+                created_at DATETIME,
+                UNIQUE (parent_id, child_id)
+            )
+        '''))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_resource_assignments_parent_id ON resource_assignments (parent_id)'
+        ))
+        db.session.execute(sqlalchemy.text(
+            'CREATE INDEX ix_resource_assignments_child_id ON resource_assignments (child_id)'
+        ))
+        db.session.commit()
+
 
 def register_cli(app):
     import click

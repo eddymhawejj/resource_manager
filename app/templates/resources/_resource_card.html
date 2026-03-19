@@ -38,6 +38,12 @@
       <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>
       {% endif %}
       <span><i class="bi bi-diagram-3"></i>{{ testbed.children.count() }} children</span>
+      {% if testbed.shared_child_assignments.count() %}
+      <span title="Shared resources assigned"><i class="bi bi-share"></i>{{ testbed.shared_child_assignments.count() }} shared</span>
+      {% endif %}
+      {% if testbed.max_concurrent_bookings > 1 %}
+      <span title="Max concurrent bookings"><i class="bi bi-layers"></i>{{ testbed.max_concurrent_bookings }} slots</span>
+      {% endif %}
     </div>
   </div>
   <div class="card-footer bg-transparent border-top d-flex justify-content-between align-items-center py-2">
