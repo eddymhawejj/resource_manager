@@ -108,7 +108,7 @@
           {% for host in host_list %}
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <div>
-              <code>{{ host.address }}</code>
+              <code>{{ host.address }}</code><button class="copy-btn" data-copy="{{ host.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
               {% if host.label %}
                 <small class="text-muted ms-1">{{ host.label }}</small>
               {% endif %}
@@ -414,7 +414,7 @@
               {% set child_hosts = child.hosts.all() %}
               {% if child_hosts %}
                 {% for h in child_hosts %}
-                <code class="me-1">{{ h.address }}</code>
+                <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
                 {% endfor %}
               {% else %}
                 <span class="text-muted">-</span>

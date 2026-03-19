@@ -3,9 +3,22 @@
 {% block page_title %}Audit Log{% endblock %}
 
 {% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.dashboard') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Audit Log</li>
+  </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
   <p class="text-muted mb-0">Track all actions across the system</p>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center">
+    {% if entries %}
+    <input type="text" class="form-control form-control-sm" data-table-filter="audit-table" placeholder="Filter..." style="max-width:200px;">
+    <button class="btn btn-sm btn-outline-secondary btn-export" onclick="exportTableToCSV('#audit-table', 'audit_log.csv')" title="Export CSV">
+      <i class="bi bi-download me-1"></i>CSV
+    </button>
+    {% endif %}
     <select class="form-select form-select-sm" style="width: auto;" onchange="location.href='?action='+this.value">
       <option value="">All Actions</option>
       <option value="booking" {% if action_filter == 'booking' %}selected{% endif %}>Bookings</option>
@@ -20,7 +33,7 @@
 {% if entries %}
 <div class="card">
   <div class="table-responsive">
-    <table class="table table-hover mb-0">
+    <table class="table table-hover mb-0" id="audit-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -33,7 +46,9 @@
       <tbody>
         {% for entry in entries %}
         <tr>
-          <td><small>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if entry.timestamp else '-' }}</small></td>
+          <td data-value="{{ entry.timestamp.strftime('%Y-%m-%dT%H:%M:%S') if entry.timestamp else '' }}">
+            <small>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if entry.timestamp else '-' }}</small>
+          </td>
           <td>{{ entry.user.display_name if entry.user else 'System' }}</td>
           <td>
             <span class="badge bg-{% if 'create' in entry.action %}success{% elif 'delete' in entry.action %}danger{% elif 'cancel' in entry.action %}warning{% else %}primary{% endif %}">
@@ -56,11 +71,21 @@
 {% if total_pages > 1 %}
 <nav class="mt-3">
   <ul class="pagination justify-content-center">
+    {% if page > 1 %}
+    <li class="page-item">
+      <a class="page-link" href="?page={{ page - 1 }}&action={{ action_filter }}">&laquo;</a>
+    </li>
+    {% endif %}
     {% for p in range(1, total_pages + 1) %}
     <li class="page-item {% if p == page %}active{% endif %}">
       <a class="page-link" href="?page={{ p }}&action={{ action_filter }}">{{ p }}</a>
     </li>
     {% endfor %}
+    {% if page < total_pages %}
+    <li class="page-item">
+      <a class="page-link" href="?page={{ page + 1 }}&action={{ action_filter }}">&raquo;</a>
+    </li>
+    {% endif %}
   </ul>
 </nav>
 {% endif %}
@@ -70,6 +95,7 @@
   <i class="bi bi-journal-text d-block"></i>
   <h5>No audit log entries</h5>
   <p class="text-muted">Actions will appear here as users interact with the system.</p>
+  <p class="empty-hint">Create, update, or delete resources and bookings to generate audit entries.</p>
 </div>
 {% endif %}
 {% endblock %}

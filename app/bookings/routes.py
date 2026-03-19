@@ -13,11 +13,17 @@ from app.email_service import send_booking_confirmation, send_booking_cancellati
 @bp.route('/')
 @login_required
 def list_bookings():
+    page = request.args.get('page', 1, type=int)
+    per_page = 25
     if current_user.is_admin:
-        bookings = Booking.query.order_by(Booking.start_time.desc()).all()
+        query = Booking.query.order_by(Booking.start_time.desc())
     else:
-        bookings = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.start_time.desc()).all()
-    return render_template('bookings/list.html', bookings=bookings)
+        query = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.start_time.desc())
+    total = query.count()
+    bookings = query.offset((page - 1) * per_page).limit(per_page).all()
+    total_pages = (total + per_page - 1) // per_page
+    return render_template('bookings/list.html', bookings=bookings,
+                           page=page, total_pages=total_pages, total=total)
 
 
 @bp.route('/calendar')

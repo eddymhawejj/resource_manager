@@ -675,3 +675,248 @@ body {
   border-color: var(--border-color);
   color: var(--text-primary);
 }
+
+/* ===== Global Search ===== */
+.global-search-wrapper {
+  position: relative;
+}
+
+.global-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.global-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+#global-search {
+  width: 220px;
+  padding-left: 32px;
+  padding-right: 8px;
+  background: var(--bg-primary);
+  border-color: var(--border-color);
+  font-size: 0.85rem;
+  transition: width 0.2s ease;
+}
+
+#global-search:focus {
+  width: 320px;
+}
+
+.global-search-results {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 380px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow-lg);
+  z-index: 1060;
+  display: none;
+  margin-top: 4px;
+}
+
+.global-search-results.show {
+  display: block;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  text-decoration: none;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.1s;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover, .search-result-item.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.search-result-item i {
+  font-size: 1.1rem;
+  color: var(--accent);
+  min-width: 1.25rem;
+  text-align: center;
+}
+
+.search-result-item .search-label {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.search-result-item .search-detail {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.search-no-results {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+/* ===== Back to Top Button ===== */
+.back-to-top {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 1050;
+  box-shadow: var(--shadow-lg);
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.back-to-top:hover {
+  opacity: 1;
+}
+
+.back-to-top.show {
+  display: flex;
+}
+
+/* ===== Toast Overrides ===== */
+.toast-container .toast {
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* ===== Sortable Table Headers ===== */
+.table th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.table th[data-sort]:hover {
+  color: var(--accent);
+}
+
+.table th[data-sort]::after {
+  content: '\F282';
+  font-family: 'bootstrap-icons';
+  margin-left: 0.3rem;
+  font-size: 0.7rem;
+  opacity: 0.3;
+}
+
+.table th[data-sort].sort-asc::after {
+  content: '\F235';
+  opacity: 0.8;
+}
+
+.table th[data-sort].sort-desc::after {
+  content: '\F229';
+  opacity: 0.8;
+}
+
+/* ===== Table Filter ===== */
+.table-filter-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.table-filter-row input {
+  max-width: 250px;
+}
+
+/* ===== Copy Button ===== */
+.copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0 0.25rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  vertical-align: middle;
+}
+
+*:hover > .copy-btn, .copy-btn:focus {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: var(--accent);
+}
+
+.copy-btn.copied {
+  color: var(--success);
+  opacity: 1;
+}
+
+/* ===== Breadcrumb ===== */
+.breadcrumb {
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0;
+  font-size: 0.85rem;
+}
+
+.breadcrumb-item a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.breadcrumb-item a:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-item.active {
+  color: var(--text-secondary);
+}
+
+/* ===== Improved Empty State ===== */
+.empty-state .empty-action {
+  margin-top: 1rem;
+}
+
+.empty-state .empty-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+}
+
+/* ===== CSV Export Button ===== */
+.btn-export {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 991.98px) {
+  #global-search {
+    width: 140px;
+  }
+  #global-search:focus {
+    width: 200px;
+  }
+  .global-search-results {
+    width: 300px;
+  }
+}

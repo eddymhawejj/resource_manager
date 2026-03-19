@@ -3,14 +3,29 @@
 {% block page_title %}Waitlist{% endblock %}
 
 {% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('resources.list_resources') }}">Home</a></li>
+    <li class="breadcrumb-item active">Waitlist</li>
+  </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
   <p class="text-muted mb-0">{{ entries|length }} waitlist entry(ies)</p>
+  {% if entries %}
+  <div class="d-flex gap-2 align-items-center">
+    <input type="text" class="form-control form-control-sm" data-table-filter="waitlist-table" placeholder="Filter..." style="max-width:200px;">
+    <button class="btn btn-sm btn-outline-secondary btn-export" onclick="exportTableToCSV('#waitlist-table', 'waitlist.csv')" title="Export CSV">
+      <i class="bi bi-download me-1"></i>CSV
+    </button>
+  </div>
+  {% endif %}
 </div>
 
 {% if entries %}
 <div class="card">
   <div class="table-responsive">
-    <table class="table table-hover mb-0">
+    <table class="table table-hover mb-0" id="waitlist-table">
       <thead>
         <tr>
           <th>Resource</th>
@@ -19,7 +34,7 @@
           <th>Desired End</th>
           <th>Status</th>
           <th>Notes</th>
-          <th>Actions</th>
+          <th data-no-sort class="no-export">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -33,8 +48,8 @@
           {% if current_user.is_admin %}
           <td>{{ entry.user.display_name }}</td>
           {% endif %}
-          <td>{{ entry.desired_start.strftime('%Y-%m-%d %H:%M') }}</td>
-          <td>{{ entry.desired_end.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td data-value="{{ entry.desired_start.strftime('%Y-%m-%dT%H:%M') }}">{{ entry.desired_start.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td data-value="{{ entry.desired_end.strftime('%Y-%m-%dT%H:%M') }}">{{ entry.desired_end.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>
             {% if entry.status == 'waiting' %}
               <span class="badge bg-warning">Waiting</span>
@@ -45,7 +60,7 @@
             {% endif %}
           </td>
           <td><small class="text-muted">{{ entry.notes or '-' }}</small></td>
-          <td>
+          <td class="no-export">
             <form method="POST" action="{{ url_for('bookings.remove_from_waitlist', entry_id=entry.id) }}"
                   class="d-inline" onsubmit="return confirm('Remove from waitlist?')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -70,6 +85,12 @@
   <i class="bi bi-clock-history d-block"></i>
   <h5>No waitlist entries</h5>
   <p class="text-muted">When a resource is booked, you can join the waitlist to be notified when it becomes available.</p>
+  <div class="empty-action">
+    <a href="{{ url_for('resources.list_resources') }}" class="btn btn-outline-primary">
+      <i class="bi bi-hdd-stack me-1"></i>Browse Resources
+    </a>
+  </div>
+  <p class="empty-hint">Visit a resource's detail page to join its waitlist.</p>
 </div>
 {% endif %}
 {% endblock %}

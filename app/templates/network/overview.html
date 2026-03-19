@@ -3,6 +3,13 @@
 {% block page_title %}Network Overview{% endblock %}
 
 {% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('resources.list_resources') }}">Home</a></li>
+    <li class="breadcrumb-item active">Network</li>
+  </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
   <p class="text-muted mb-0">VLANs, subnets, and host mapping across the lab</p>
   {% if current_user.is_admin %}
@@ -106,7 +113,7 @@
               <li class="list-group-item">
                 <div class="d-flex justify-content-between align-items-center">
                   <div>
-                    <code>{{ subnet.cidr }}</code>
+                    <code>{{ subnet.cidr }}</code><button class="copy-btn" data-copy="{{ subnet.cidr }}" title="Copy"><i class="bi bi-clipboard"></i></button>
                     {% if subnet.name %}
                       <small class="text-muted ms-1">{{ subnet.name }}</small>
                     {% endif %}
@@ -140,21 +147,24 @@
       <h5>No VLANs configured</h5>
       <p class="text-muted">Add VLANs and subnets to map your lab network. Hosts will be auto-linked to matching subnets.</p>
       {% if current_user.is_admin %}
-      <a href="{{ url_for('network.add_vlan') }}" class="btn btn-primary">
-        <i class="bi bi-plus-lg me-1"></i>Add First VLAN
-      </a>
+      <div class="empty-action">
+        <a href="{{ url_for('network.add_vlan') }}" class="btn btn-primary">
+          <i class="bi bi-plus-lg me-1"></i>Add First VLAN
+        </a>
+      </div>
       {% endif %}
     </div>
     {% endif %}
 
     {% if unlinked_hosts %}
     <div class="card mt-4">
-      <div class="card-header">
-        <i class="bi bi-question-circle me-2"></i>Unlinked Hosts ({{ unlinked_hosts|length }})
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-question-circle me-2"></i>Unlinked Hosts ({{ unlinked_hosts|length }})</span>
+        <input type="text" class="form-control form-control-sm" data-table-filter="unlinked-table" placeholder="Filter..." style="max-width:180px;">
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0">
+          <table class="table table-sm table-hover mb-0" id="unlinked-table">
             <thead>
               <tr>
                 <th>Address</th>
@@ -165,7 +175,7 @@
             <tbody>
               {% for host in unlinked_hosts %}
               <tr>
-                <td><code>{{ host.address }}</code></td>
+                <td><code>{{ host.address }}</code><button class="copy-btn" data-copy="{{ host.address }}" title="Copy"><i class="bi bi-clipboard"></i></button></td>
                 <td>{{ host.label or '-' }}</td>
                 <td>
                   <a href="{{ url_for('resources.detail', resource_id=host.resource.id) }}" class="text-decoration-none">
@@ -200,7 +210,7 @@
             <th>Subnet</th>
             <th>Description</th>
             {% if current_user.is_admin %}
-            <th class="text-end">Actions</th>
+            <th data-no-sort class="text-end">Actions</th>
             {% endif %}
           </tr>
         </thead>
@@ -216,7 +226,7 @@
             <td>
               {% for host in device.hosts.all() %}
               <div>
-                <code>{{ host.address }}</code>
+                <code>{{ host.address }}</code><button class="copy-btn" data-copy="{{ host.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
                 {% if host.label %}<small class="text-muted ms-1">{{ host.label }}</small>{% endif %}
               </div>
               {% endfor %}
@@ -262,6 +272,14 @@
       <i class="bi bi-hdd-network d-block" style="font-size: 2.5rem;"></i>
       <h5>No discovered devices</h5>
       <p class="text-muted">Use "Discover Hosts (LLDP)" to find devices connected to the switch. Discovered devices appear here and are separate from your bookable resources.</p>
+      {% if current_user.is_admin and switch_configured %}
+      <div class="empty-action">
+        <form method="POST" action="{{ url_for('network.discover_now') }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-info"><i class="bi bi-search me-1"></i>Discover Hosts</button>
+        </form>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
   </div>

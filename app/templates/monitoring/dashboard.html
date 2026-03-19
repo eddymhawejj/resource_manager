@@ -3,6 +3,13 @@
 {% block page_title %}Monitoring Dashboard{% endblock %}
 
 {% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('resources.list_resources') }}">Home</a></li>
+    <li class="breadcrumb-item active">Monitoring</li>
+  </ol>
+</nav>
+
 <p class="text-muted mb-4">Live ICMP monitoring of all active resources</p>
 
 {% if resources %}

@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template
+from flask import Flask, render_template, url_for
 
 from app.config import Config
 from app.extensions import db, migrate, login_manager, mail, csrf
@@ -73,6 +73,54 @@ def create_app(config_class=Config):
     def index():
         from flask import redirect, url_for
         return redirect(url_for('resources.list_resources'))
+
+    # Global search API
+    @app.route('/search')
+    def global_search():
+        from flask import request, jsonify
+        from flask_login import current_user
+        from app.models import Resource, ResourceHost, Vlan, Subnet, Booking
+        if not current_user.is_authenticated:
+            return jsonify([]), 401
+        q = request.args.get('q', '').strip()
+        if len(q) < 2:
+            return jsonify([])
+        results = []
+        like = f'%{q}%'
+        # Resources
+        for r in Resource.query.filter(
+            (Resource.name.ilike(like)) | (Resource.description.ilike(like)) | (Resource.location.ilike(like))
+        ).limit(8).all():
+            results.append({'type': 'resource', 'icon': 'bi-hdd-stack', 'label': r.name,
+                            'detail': r.resource_type.title() + (' — ' + r.location if r.location else ''),
+                            'url': url_for('resources.detail', resource_id=r.id)})
+        # Hosts (IP / hostname)
+        for h in ResourceHost.query.filter(
+            (ResourceHost.address.ilike(like)) | (ResourceHost.label.ilike(like))
+        ).limit(8).all():
+            results.append({'type': 'host', 'icon': 'bi-hdd-network', 'label': h.address,
+                            'detail': (h.label + ' — ' if h.label else '') + (h.resource.name if h.resource else ''),
+                            'url': url_for('resources.detail', resource_id=h.resource_id)})
+        # VLANs
+        for v in Vlan.query.filter(
+            (Vlan.name.ilike(like)) | (Vlan.description.ilike(like)) | (db.cast(Vlan.number, db.String).ilike(like))
+        ).limit(5).all():
+            results.append({'type': 'vlan', 'icon': 'bi-diagram-2', 'label': f'VLAN {v.number} — {v.name}',
+                            'detail': v.description[:80] if v.description else '',
+                            'url': url_for('network.vlan_detail', vlan_id=v.id)})
+        # Subnets
+        for s in Subnet.query.filter(
+            (Subnet.cidr.ilike(like)) | (Subnet.name.ilike(like))
+        ).limit(5).all():
+            results.append({'type': 'subnet', 'icon': 'bi-grid-3x3', 'label': s.cidr,
+                            'detail': s.name or '',
+                            'url': url_for('network.vlan_detail', vlan_id=s.vlan_id)})
+        # Bookings
+        for b in Booking.query.filter(Booking.title.ilike(like)).limit(5).all():
+            results.append({'type': 'booking', 'icon': 'bi-bookmark-check', 'label': b.title,
+                            'detail': b.resource.name if b.resource else '',
+                            'url': url_for('bookings.list_bookings')})
+        return jsonify(results[:20])
 
     # Enable WAL mode for SQLite on every connection (allows concurrent reads + writes)
     if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
