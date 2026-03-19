@@ -790,7 +790,10 @@ def download_rdp_file(resource_id, ap_id):
     """Download .rdp file with embedded credentials."""
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
-    if ap.resource_id != resource_id or ap.protocol != 'rdp':
+    if ap.protocol != 'rdp':
+        abort(404)
+    # Allow access from the AP's own resource or its parent resource
+    if ap.resource_id != resource_id and resource.parent_id != resource_id:
         abort(404)
     if not _can_access_check(resource):
         abort(403)
