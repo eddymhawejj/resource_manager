@@ -298,54 +298,64 @@ def tunnel(ws, ap_id):
 
     # --- Phase 2: Relay loop ---
     #
-    # Performance-critical: avoid blocking on either side.
-    #   - Use select() with a short timeout to wait for guacd data
-    #   - Use ws.receive(timeout=0) for non-blocking browser reads
-    #   - Drain all available guacd data before checking browser
+    # IMPORTANT: The Guacamole JS parser (WebSocketTunnel.onmessage) does
+    # NOT buffer partial instructions across WebSocket messages.  Each
+    # message must contain only complete instructions (terminated by ';').
+    # If a message ends mid-instruction the parser loses sync and renders
+    # garbage.
+    #
+    # So we buffer guacd TCP data and only send up to the last ';' in
+    # each WebSocket message, carrying any trailing partial instruction
+    # over to the next send.
 
     sel = selectors.DefaultSelector()
     sel.register(guacd_sock, selectors.EVENT_READ)
     bytes_to_browser = 0
     bytes_to_guacd = 0
     msg_count = 0
+    guacd_buf = b''  # Buffer for incomplete instructions
 
     log.info(f'[tunnel:{ap_id}] Entering relay loop')
 
     try:
         while True:
-            # Wait up to 2ms for guacd data (keeps latency low while
-            # avoiding a busy spin)
+            # Wait up to 2ms for guacd data
             events = sel.select(timeout=0.002)
 
             if events:
-                # Drain all available data from guacd into one buffer
-                chunks = []
-                while True:
-                    try:
-                        chunk = guacd_sock.recv(65536)
-                    except (BlockingIOError, socket.error):
-                        break
-                    if not chunk:
-                        log.info(f'[tunnel:{ap_id}] guacd disconnected '
-                                 f'(sent {bytes_to_browser}B to browser, '
-                                 f'{bytes_to_guacd}B to guacd)')
-                        return  # guacd disconnected
-                    chunks.append(chunk)
+                # Read available data from guacd
+                try:
+                    chunk = guacd_sock.recv(65536)
+                except (BlockingIOError, socket.error):
+                    chunk = None
+                if chunk == b'':
+                    log.info(f'[tunnel:{ap_id}] guacd disconnected '
+                             f'(sent {bytes_to_browser}B to browser, '
+                             f'{bytes_to_guacd}B to guacd)')
+                    return  # guacd disconnected
+                if chunk:
+                    guacd_buf += chunk
 
-                if chunks:
-                    batch = b''.join(chunks)
-                    bytes_to_browser += len(batch)
+            # Send only complete instructions to the browser
+            if guacd_buf:
+                # Find the last instruction boundary
+                last_semi = guacd_buf.rfind(b';')
+                if last_semi >= 0:
+                    # Send everything up to and including the last ';'
+                    to_send = guacd_buf[:last_semi + 1]
+                    guacd_buf = guacd_buf[last_semi + 1:]
+
+                    text = to_send.decode('utf-8', errors='replace')
+                    bytes_to_browser += len(to_send)
                     msg_count += 1
                     if msg_count <= 5:
-                        text_preview = batch[:200].decode('utf-8', errors='replace')
-                        log.info(f'[tunnel:{ap_id}] <- guacd ({len(batch)}B): '
-                                 f'{text_preview}')
-                        # Parse for error instructions from guacd
-                        parsed = _parse_instruction(text_preview)
+                        log.info(f'[tunnel:{ap_id}] <- guacd '
+                                 f'({len(to_send)}B): {text[:200]}')
+                        parsed = _parse_instruction(text)
                         if parsed and parsed[0] == 'error':
                             log.error(f'[tunnel:{ap_id}] guacd error: '
                                       f'{parsed[1]}')
-                    ws.send(batch.decode('utf-8', errors='replace'))
+                    ws.send(text)
 
             # Non-blocking check for browser data
             try:
@@ -360,6 +370,14 @@ def tunnel(ws, ap_id):
                 continue
 
             raw = data.encode('utf-8') if isinstance(data, str) else data
+
+            # Filter out Guacamole internal tunnel instructions (opcode "").
+            # The JS client sends these as keep-alive pings (e.g.
+            # "0.,4.ping,...;") which guacd doesn't understand and may
+            # cause it to drop the connection.
+            if raw.startswith(b'0.'):
+                continue
+
             bytes_to_guacd += len(raw)
             guacd_sock.sendall(raw)
 
