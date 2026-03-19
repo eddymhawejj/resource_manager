@@ -272,7 +272,8 @@ def scan_single_subnet(subnet_id):
         flash('A subnet scan is already running.', 'warning')
     else:
         flash(f'Scanning {subnet.cidr} in background.', 'info')
-    return redirect(url_for('network.overview'))
+    next_url = request.form.get('next') or request.referrer or url_for('network.overview')
+    return redirect(next_url)
 
 
 @bp.route('/scan/progress')

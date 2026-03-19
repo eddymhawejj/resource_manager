@@ -15,9 +15,20 @@
           <code>{{ sd.subnet.cidr }}</code>
           {% if sd.subnet.name %}<small class="text-muted ms-1">{{ sd.subnet.name }}</small>{% endif %}
         </span>
-        <span class="badge bg-{% if sd.utilization >= 80 %}danger{% elif sd.utilization >= 50 %}warning{% else %}success{% endif %}">
-          {{ sd.utilization }}%
-        </span>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-{% if sd.utilization >= 80 %}danger{% elif sd.utilization >= 50 %}warning{% else %}success{% endif %}">
+            {{ sd.utilization }}%
+          </span>
+          {% if current_user.is_admin %}
+          <form method="POST" action="{{ url_for('network.scan_single_subnet', subnet_id=sd.subnet.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ url_for('network.ipam') }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Scan this subnet">
+              <i class="bi bi-radar"></i>
+            </button>
+          </form>
+          {% endif %}
+        </div>
       </div>
       <div class="card-body">
         <div class="progress mb-3" style="height: 8px;">
