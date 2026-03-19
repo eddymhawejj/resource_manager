@@ -11,6 +11,90 @@ from app.extensions import db
 from app.models import AccessPoint, Resource, can_user_access
 from app.console import bp
 
+# Monkey-patch simple-websocket to disable PerMessageDeflate.
+# The library hardcodes compression in AcceptConnection which corrupts
+# Guacamole protocol frames in the browser.
+import simple_websocket.ws as _sw
+from wsproto.events import (
+    Request as _WsRequest,
+    AcceptConnection as _WsAcceptConnection,
+    CloseConnection as _WsCloseConnection,
+    Ping as _WsPing,
+    Pong as _WsPong,
+    TextMessage as _WsTextMessage,
+    BytesMessage as _WsBytesMessage,
+)
+from wsproto.frame_protocol import CloseReason as _WsCloseReason
+from wsproto.utilities import LocalProtocolError as _WsLocalProtocolError
+
+
+def _handle_events_no_deflate(self):
+    keep_going = True
+    out_data = b''
+    for event in self.ws.events():
+        try:
+            if isinstance(event, _WsRequest):
+                self.subprotocol = self.choose_subprotocol(event)
+                # NO extensions — PerMessageDeflate removed
+                out_data += self.ws.send(_WsAcceptConnection(
+                    subprotocol=self.subprotocol))
+            elif isinstance(event, _WsCloseConnection):
+                if self.is_server:
+                    out_data += self.ws.send(event.response())
+                self.close_reason = event.code
+                self.close_message = event.reason
+                self.connected = False
+                self.event.set()
+                keep_going = False
+            elif isinstance(event, _WsPing):
+                out_data += self.ws.send(event.response())
+            elif isinstance(event, _WsPong):
+                self.pong_received = True
+            elif isinstance(event, (_WsTextMessage, _WsBytesMessage)):
+                self.incoming_message_len += len(event.data)
+                if self.max_message_size and \
+                        self.incoming_message_len > self.max_message_size:
+                    out_data += self.ws.send(_WsCloseConnection(
+                        _WsCloseReason.MESSAGE_TOO_BIG, 'Message is too big'))
+                    self.event.set()
+                    keep_going = False
+                    break
+                if self.incoming_message is None:
+                    self.incoming_message = event.data
+                elif isinstance(event, _WsTextMessage):
+                    if not isinstance(self.incoming_message, bytearray):
+                        self.incoming_message = bytearray(
+                            (self.incoming_message + event.data).encode())
+                    else:
+                        self.incoming_message += event.data.encode()
+                else:
+                    if not isinstance(self.incoming_message, bytearray):
+                        self.incoming_message = bytearray(
+                            self.incoming_message + event.data)
+                    else:
+                        self.incoming_message += event.data
+                if not event.message_finished:
+                    continue
+                if isinstance(self.incoming_message, (str, bytes)):
+                    self.input_buffer.append(self.incoming_message)
+                elif isinstance(event, _WsTextMessage):
+                    self.input_buffer.append(self.incoming_message.decode())
+                else:
+                    self.input_buffer.append(bytes(self.incoming_message))
+                self.incoming_message = None
+                self.incoming_message_len = 0
+                self.event.set()
+        except _WsLocalProtocolError:
+            out_data = b''
+            self.event.set()
+            keep_going = False
+    if out_data:
+        self.sock.send(out_data)
+    return keep_going
+
+
+_sw.Base._handle_events = _handle_events_no_deflate
+
 sock = Sock()
 
 
