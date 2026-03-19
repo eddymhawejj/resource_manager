@@ -326,8 +326,8 @@ function exportTableToCSV(tableEl, filename) {
 function _handleConnectResponse(data, csrfToken) {
   if (data.protocol === 'rdp') {
     // Auto-download launcher without "Save As" dialog
-    fetch(data.rdp_download)
-      .then(function (r) { return r.blob(); })
+    fetch(data.rdp_download, { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
       .then(function (blob) {
         var filename = data.rdp_download.split('/').pop() || 'connect';
         var a = document.createElement('a');
