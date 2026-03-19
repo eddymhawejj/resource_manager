@@ -253,6 +253,43 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
                 known_count += 1
                 continue
 
+            # If hostname resolved, check if a resource with that name already
+            # exists (e.g. same device got a new DHCP IP). Update it instead of
+            # creating a duplicate.
+            if hostname:
+                existing_resource = Resource.query.filter_by(name=name).first()
+                if existing_resource:
+                    # Update the existing host entry's IP, or add a new host
+                    existing_host = existing_resource.hosts.filter_by(
+                        label='Subnet scan'
+                    ).first()
+                    if existing_host:
+                        existing_host.address = ip_str
+                        existing_host.subnet_id = subnet.id
+                    else:
+                        host = ResourceHost(
+                            resource_id=existing_resource.id,
+                            address=ip_str,
+                            label='Subnet scan',
+                            critical=True,
+                            subnet_id=subnet.id,
+                        )
+                        db.session.add(host)
+
+                    # Update the access point hostname too (in case FQDN changed)
+                    existing_ap = AccessPoint.query.filter(
+                        AccessPoint.resource_id == existing_resource.id,
+                        AccessPoint.protocol == 'ssh',
+                        AccessPoint.display_name.like('SSH (%'),
+                    ).first()
+                    if existing_ap:
+                        existing_ap.hostname = hostname
+                        existing_ap.display_name = f'SSH ({hostname})'
+
+                    known_addresses.add(ip_str)
+                    known_count += 1
+                    continue
+
             resource = Resource(
                 name=name,
                 description=f'Discovered via subnet scan of {subnet.cidr}',
