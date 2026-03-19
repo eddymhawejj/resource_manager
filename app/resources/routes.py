@@ -797,14 +797,18 @@ def download_rdp_file(resource_id, ap_id):
         abort(404)
     if not _can_access_check(resource):
         abort(403)
-    # If password is available, generate a .bat launcher that auto-stores
-    # credentials via cmdkey (RDP password encryption requires Windows DPAPI
-    # which can't be done from a Linux server)
+    # If password is available, generate a platform-specific launcher
+    # that auto-connects with credentials (base64-obfuscated)
     if ap.password:
-        bat_content = ap.generate_rdp_launcher()
-        filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.bat'
+        ua = request.headers.get('User-Agent', '')
+        if 'Windows' in ua:
+            content = ap.generate_rdp_launcher_bat()
+            filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.bat'
+        else:
+            content = ap.generate_rdp_launcher_sh()
+            filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.sh'
         return Response(
-            bat_content,
+            content,
             mimetype='application/octet-stream',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'}
         )

@@ -635,19 +635,15 @@ class AccessPoint(db.Model):
         ]
         return '\r\n'.join(lines) + '\r\n'
 
-    def generate_rdp_launcher(self):
-        """Generate a .bat launcher that stores credentials via cmdkey and opens RDP.
+    def generate_rdp_launcher_bat(self):
+        """Generate a .bat launcher for Windows that stores credentials via cmdkey.
 
-        The password 51:b field in .rdp files uses Windows DPAPI which is
-        machine/user-specific and cannot be generated from a Linux server.
-        Instead, this creates a batch script that uses PowerShell to decode
-        a base64-encoded password at runtime, so the password is not stored
-        in plaintext in the file.
+        Uses PowerShell to decode a base64-encoded password at runtime so the
+        password is not stored in plaintext in the file.
         """
         address = f'{self.hostname}:{self.effective_port}' if self.effective_port != 3389 else self.hostname
         termsrv = f'TERMSRV/{self.hostname}'
         pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
-        # PowerShell decodes the base64 password and passes it to cmdkey
         ps_store = (
             f'powershell -NoProfile -Command "'
             f"$p=[System.Text.Encoding]::UTF8.GetString("
@@ -663,6 +659,21 @@ class AccessPoint(db.Model):
             f'cmdkey /delete:"{termsrv}"',
         ]
         return '\r\n'.join(lines) + '\r\n'
+
+    def generate_rdp_launcher_sh(self):
+        """Generate a .sh launcher for Linux/macOS using xfreerdp.
+
+        Uses base64-encoded password decoded at runtime.
+        """
+        pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
+        lines = [
+            '#!/bin/bash',
+            f"P=$(echo '{pw_b64}' | base64 -d)",
+            f'xfreerdp /v:{self.hostname}:{self.effective_port}'
+            f' /u:"{self.username}" /p:"$P"'
+            f' /size:1920x1080 /dynamic-resolution /cert:tofu',
+        ]
+        return '\n'.join(lines) + '\n'
 
     def generate_ssh_command(self):
         """Generate the SSH command string."""
