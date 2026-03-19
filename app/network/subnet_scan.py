@@ -144,7 +144,7 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
         total_scanned, subnets_scanned.
     """
     from app.extensions import db
-    from app.models import AccessPoint, AppSettings, Resource, ResourceHost, Subnet
+    from app.models import AppSettings, Resource, ResourceHost, Subnet
     from app.monitoring.ping_service import ping_host
 
     # Gather target subnets
@@ -162,18 +162,16 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
     # Build set of already-known host addresses
     known_addresses = {h.address for h in ResourceHost.query.with_entities(ResourceHost.address).all()}
 
-    # Collect existing scan-discovered hosts missing an SSH access point,
-    # so we can backfill hostnames on rescan.
-    hosts_needing_access_point = []
-    existing_ap_resource_ids = {
-        ap.resource_id for ap in AccessPoint.query.filter(
-            AccessPoint.protocol == 'ssh',
-            AccessPoint.display_name.like('SSH (%'),
-        ).with_entities(AccessPoint.resource_id).all()
+    # Collect existing scan-discovered hosts missing a hostname host entry,
+    # so we can backfill on rescan.
+    hosts_needing_hostname = []
+    # Resource IDs that already have a hostname-based host entry
+    resources_with_hostname_host = {
+        rh.resource_id for rh in ResourceHost.query.filter_by(label='Hostname').all()
     }
     for rh in ResourceHost.query.filter_by(label='Subnet scan').all():
-        if rh.resource_id not in existing_ap_resource_ids:
-            hosts_needing_access_point.append(rh)
+        if rh.resource_id not in resources_with_hostname_host:
+            hosts_needing_hostname.append(rh)
 
     snmp_community = AppSettings.get('snmp_community', 'public')
 
@@ -289,15 +287,21 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
                         )
                         db.session.add(host)
 
-                    # Update the access point hostname too (in case FQDN changed)
-                    existing_ap = AccessPoint.query.filter(
-                        AccessPoint.resource_id == existing_resource.id,
-                        AccessPoint.protocol == 'ssh',
-                        AccessPoint.display_name.like('SSH (%'),
+                    # Update the hostname host entry if one exists
+                    existing_hostname_host = existing_resource.hosts.filter_by(
+                        label='Hostname'
                     ).first()
-                    if existing_ap:
-                        existing_ap.hostname = hostname
-                        existing_ap.display_name = f'SSH ({hostname})'
+                    if existing_hostname_host:
+                        existing_hostname_host.address = hostname
+                    else:
+                        hostname_host = ResourceHost(
+                            resource_id=existing_resource.id,
+                            address=hostname,
+                            label='Hostname',
+                            critical=True,
+                            subnet_id=subnet.id,
+                        )
+                        db.session.add(hostname_host)
 
                     known_addresses.add(ip_str)
                     known_count += 1
@@ -321,17 +325,17 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             )
             db.session.add(host)
 
-            # If we resolved a hostname, create an SSH access point using it
-            # (hostnames are more stable than DHCP-assigned IPs)
+            # If we resolved a hostname, add it as a second host entry so
+            # monitoring uses the hostname (stable) instead of the IP (DHCP).
             if hostname:
-                access_point = AccessPoint(
+                hostname_host = ResourceHost(
                     resource_id=resource.id,
-                    protocol='ssh',
-                    hostname=hostname,
-                    display_name=f'SSH ({hostname})',
-                    is_enabled=True,
+                    address=hostname,
+                    label='Hostname',
+                    critical=True,
+                    subnet_id=subnet.id,
                 )
-                db.session.add(access_point)
+                db.session.add(hostname_host)
 
             known_addresses.add(ip_str)
             new_hosts.append(ip_str)
@@ -342,26 +346,26 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             new_hosts=len(new_hosts),
         )
 
-    # Backfill SSH access points for previously discovered hosts that are
-    # missing one (e.g. created before access point logic was added).
-    if hosts_needing_access_point:
+    # Backfill hostname host entries for previously discovered hosts that
+    # are missing one (e.g. created before hostname-host logic was added).
+    if hosts_needing_hostname:
         _update_progress(phase='resolving', subnet='backfill')
         backfilled = 0
-        for rh in hosts_needing_access_point:
+        for rh in hosts_needing_hostname:
             hostname = resolve_hostname(rh.address, snmp_community=snmp_community)
             if hostname:
-                access_point = AccessPoint(
+                hostname_host = ResourceHost(
                     resource_id=rh.resource_id,
-                    protocol='ssh',
-                    hostname=hostname,
-                    display_name=f'SSH ({hostname})',
-                    is_enabled=True,
+                    address=hostname,
+                    label='Hostname',
+                    critical=True,
+                    subnet_id=rh.subnet_id,
                 )
-                db.session.add(access_point)
+                db.session.add(hostname_host)
                 backfilled += 1
         if backfilled:
             db.session.commit()
-        logger.info(f'Backfilled {backfilled} SSH access points for {len(hosts_needing_access_point)} existing hosts')
+        logger.info(f'Backfilled {backfilled} hostname hosts for {len(hosts_needing_hostname)} existing hosts')
 
     AppSettings.set('subnet_last_scan', datetime.now(timezone.utc).isoformat())
 
