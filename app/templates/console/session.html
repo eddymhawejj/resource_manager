@@ -220,6 +220,8 @@
     client.connect('width=' + w + '&height=' + h + '&dpi=' + dpi);
   }
 
+  var resizeTimeout = null;
+
   function fitDisplay() {
     if (!client) return;
     var display = client.getDisplay();
@@ -231,6 +233,14 @@
       var scale = Math.min(w / dw, h / dh);
       display.scale(scale);
     }
+  }
+
+  function requestRemoteResize() {
+    if (!client) return;
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.round(window.innerWidth * dpr);
+    var h = Math.round(window.innerHeight * dpr);
+    client.sendSize(w, h);
   }
 
   function showOverlay(title, msg) {
@@ -274,15 +284,10 @@
   };
 
   window.toggleFullscreen = function() {
-    var icon = document.getElementById('fsIcon');
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(function() {
-        icon.className = 'bi bi-fullscreen-exit';
-      }).catch(function(){});
+      document.documentElement.requestFullscreen().catch(function(){});
     } else {
-      document.exitFullscreen().then(function() {
-        icon.className = 'bi bi-fullscreen';
-      }).catch(function(){});
+      document.exitFullscreen().catch(function(){});
     }
   };
 
@@ -295,8 +300,27 @@
     writer.sendEnd();
   });
 
-  // Resize
-  window.addEventListener('resize', fitDisplay);
+  // Resize — scale immediately, then ask remote to adopt new resolution
+  window.addEventListener('resize', function() {
+    fitDisplay();
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(requestRemoteResize, 300);
+  });
+
+  // Fullscreen change — trigger resize when entering/exiting
+  document.addEventListener('fullscreenchange', function() {
+    var icon = document.getElementById('fsIcon');
+    if (document.fullscreenElement) {
+      icon.className = 'bi bi-fullscreen-exit';
+    } else {
+      icon.className = 'bi bi-fullscreen';
+    }
+    // Small delay to let the browser finish layout
+    setTimeout(function() {
+      fitDisplay();
+      requestRemoteResize();
+    }, 100);
+  });
 
   // Clean disconnect on close
   window.addEventListener('beforeunload', function() {
