@@ -401,11 +401,8 @@
     } else {
       icon.className = 'bi bi-fullscreen';
     }
-    // Small delay to let the browser finish layout
-    setTimeout(function() {
-      fitDisplay();
-      requestRemoteResize();
-    }, 100);
+    // Small delay to let the browser finish layout, then scale locally
+    setTimeout(fitDisplay, 100);
   });
 
   // Clean disconnect on close
@@ -460,42 +457,39 @@
     if (!client) return;
     var item = addTransferItem(file.name, 'up');
     var stream = client.createFileStream(file.type || 'application/octet-stream', file.name);
-    var writer = new Guacamole.ArrayBufferWriter(stream);
-    var reader = new FileReader();
     var offset = 0;
     var CHUNK = 4096;
+
+    function sendNextChunk() {
+      if (offset >= file.size) {
+        stream.sendEnd();
+        completeTransfer(item, false);
+        return;
+      }
+      var end = Math.min(offset + CHUNK, file.size);
+      var slice = file.slice(offset, end);
+      var reader = new FileReader();
+      reader.onload = function() {
+        var bytes = new Uint8Array(reader.result);
+        var binary = '';
+        for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        stream.sendBlob(btoa(binary));
+        offset = end;
+        updateTransferProgress(item, (offset / file.size) * 100);
+      };
+      reader.onerror = function() {
+        completeTransfer(item, true);
+      };
+      reader.readAsArrayBuffer(slice);
+    }
 
     stream.onack = function(status) {
       if (status.isError()) {
         completeTransfer(item, true);
         return;
       }
-      // Send next chunk
-      if (offset < file.size) {
-        var end = Math.min(offset + CHUNK, file.size);
-        var slice = file.slice(offset, end);
-        var fr = new FileReader();
-        fr.onload = function() {
-          writer.sendData(fr.result);
-          offset = end;
-          updateTransferProgress(item, (offset / file.size) * 100);
-        };
-        fr.readAsArrayBuffer(slice);
-      } else {
-        writer.sendEnd();
-        completeTransfer(item, false);
-      }
+      sendNextChunk();
     };
-
-    // Send first chunk to kick off the ack cycle
-    var firstEnd = Math.min(CHUNK, file.size);
-    var firstSlice = file.slice(0, firstEnd);
-    reader.onload = function() {
-      writer.sendData(reader.result);
-      offset = firstEnd;
-      updateTransferProgress(item, (offset / file.size) * 100);
-    };
-    reader.readAsArrayBuffer(firstSlice);
   }
 
   window.toggleFilePanel = function() {
