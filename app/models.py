@@ -635,6 +635,27 @@ class AccessPoint(db.Model):
         ]
         return '\r\n'.join(lines) + '\r\n'
 
+    def generate_rdp_launcher(self):
+        """Generate a .bat launcher that stores credentials via cmdkey and opens RDP.
+
+        The password 51:b field in .rdp files uses Windows DPAPI which is
+        machine/user-specific and cannot be generated from a Linux server.
+        Instead, this creates a batch script that:
+        1. Stores credentials with cmdkey
+        2. Launches mstsc with the RDP connection
+        3. Cleans up stored credentials after the session
+        """
+        address = f'{self.hostname}:{self.effective_port}' if self.effective_port != 3389 else self.hostname
+        termsrv = f'TERMSRV/{self.hostname}'
+        lines = [
+            '@echo off',
+            f'cmdkey /generic:"{termsrv}" /user:"{self.username}" /pass:"{self.password}"',
+            f'mstsc /v:"{address}"',
+            'timeout /t 5 /nobreak >nul',
+            f'cmdkey /delete:"{termsrv}"',
+        ]
+        return '\r\n'.join(lines) + '\r\n'
+
     def generate_ssh_command(self):
         """Generate the SSH command string."""
         cmd = 'ssh'
