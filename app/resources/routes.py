@@ -140,6 +140,18 @@ def detail(resource_id):
             Resource.resource_type != 'device',
         ).order_by(Resource.name).all()
 
+    # Available testbeds for assigning as shared parents (from child's view)
+    assignable_parents = []
+    if not resource.is_testbed and current_user.is_authenticated and current_user.is_admin:
+        existing_parent_ids = {a.parent_id for a in shared_parents}
+        if resource.parent_id:
+            existing_parent_ids.add(resource.parent_id)
+        existing_parent_ids.add(resource_id)
+        assignable_parents = Resource.query.filter(
+            Resource.id.notin_(existing_parent_ids),
+            Resource.is_testbed == True,
+        ).order_by(Resource.name).all()
+
     # Access points: own + children's (for testbeds)
     own_access_points = AccessPoint.query.filter_by(resource_id=resource_id, is_enabled=True).all()
     child_access_points = []
@@ -167,6 +179,7 @@ def detail(resource_id):
                            shared_assignments=shared_assignments,
                            shared_parents=shared_parents,
                            assignable_resources=assignable_resources,
+                           assignable_parents=assignable_parents,
                            all_access_points=all_access_points,
                            all_access_points_admin=all_access_points_admin,
                            has_active_booking=has_active_booking,
@@ -533,6 +546,64 @@ def unassign_shared_child(resource_id, assignment_id):
     db.session.delete(assignment)
     db.session.commit()
     flash(f'"{child_name}" unassigned from this testbed.', 'info')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/assign-parent', methods=['POST'])
+@login_required
+@admin_required
+def assign_shared_parent(resource_id):
+    """Assign a parent testbed to this resource (from the child's view)."""
+    resource = db.session.get(Resource, resource_id) or abort(404)
+    parent_id = request.form.get('parent_id', type=int)
+    slots = request.form.get('slots', 1, type=int)
+    notes = request.form.get('assignment_notes', '').strip()
+
+    if not parent_id or parent_id == resource_id:
+        flash('Invalid testbed selected.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    parent = db.session.get(Resource, parent_id)
+    if not parent or not parent.is_testbed:
+        flash('Testbed not found.', 'danger')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    existing = ResourceAssignment.query.filter_by(parent_id=parent_id, child_id=resource_id).first()
+    if existing:
+        flash(f'Already assigned to "{parent.name}".', 'warning')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    slots = max(1, min(slots, 100))
+    assignment = ResourceAssignment(
+        parent_id=parent_id,
+        child_id=resource_id,
+        slots=slots,
+        notes=notes,
+    )
+    db.session.add(assignment)
+    AuditLog.log('resource.assign_parent', 'resource', resource_id,
+                 {'parent_id': parent_id, 'parent_name': parent.name, 'slots': slots},
+                 user_id=current_user.id)
+    db.session.commit()
+    flash(f'Assigned to "{parent.name}" with {slots} slot(s).', 'success')
+    return redirect(url_for('resources.detail', resource_id=resource_id))
+
+
+@bp.route('/<int:resource_id>/unassign-parent/<int:assignment_id>', methods=['POST'])
+@login_required
+@admin_required
+def unassign_shared_parent(resource_id, assignment_id):
+    """Remove a parent assignment from the child's view."""
+    assignment = db.session.get(ResourceAssignment, assignment_id) or abort(404)
+    if assignment.child_id != resource_id:
+        abort(404)
+    parent_name = assignment.parent.name
+    AuditLog.log('resource.unassign_parent', 'resource', resource_id,
+                 {'parent_id': assignment.parent_id, 'parent_name': parent_name},
+                 user_id=current_user.id)
+    db.session.delete(assignment)
+    db.session.commit()
+    flash(f'Unassigned from "{parent_name}".', 'info')
     return redirect(url_for('resources.detail', resource_id=resource_id))
 
 

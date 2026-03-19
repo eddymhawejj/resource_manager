@@ -702,12 +702,13 @@
 {% endif %}
 
 <!-- Shared With (for non-testbed resources showing which testbeds they're assigned to) -->
-{% if shared_parents %}
+{% if shared_parents or (current_user.is_admin and assignable_parents) %}
 <div class="card mb-4">
   <div class="card-header">
     <i class="bi bi-share me-2"></i>Shared With ({{ shared_parents|length }} testbed{{ 's' if shared_parents|length != 1 }})
   </div>
   <div class="card-body p-0">
+    {% if shared_parents %}
     <div class="table-responsive">
       <table class="table table-hover mb-0">
         <thead>
@@ -715,6 +716,7 @@
             <th>Testbed</th>
             <th>Slots</th>
             <th>Notes</th>
+            {% if current_user.is_admin %}<th data-no-sort>Actions</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -727,12 +729,54 @@
             </td>
             <td><span class="badge bg-primary">{{ a.slots }}</span></td>
             <td><small class="text-muted">{{ a.notes or '-' }}</small></td>
+            {% if current_user.is_admin %}
+            <td>
+              <form method="POST" action="{{ url_for('resources.unassign_shared_parent', resource_id=resource.id, assignment_id=a.id) }}"
+                    class="d-inline" onsubmit="return confirm('Unassign from this testbed?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Unassign"><i class="bi bi-x-lg"></i></button>
+              </form>
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% else %}
+    <div class="empty-state py-4">
+      <i class="bi bi-share d-block" style="font-size: 2rem;"></i>
+      <p class="text-muted mb-0">Not shared with any testbed yet</p>
+    </div>
+    {% endif %}
   </div>
+  {% if current_user.is_admin and assignable_parents %}
+  <div class="card-footer bg-transparent">
+    <form method="POST" action="{{ url_for('resources.assign_shared_parent', resource_id=resource.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label class="form-label small">Assign to Testbed</label>
+        <select name="parent_id" class="form-select form-select-sm" required>
+          <option value="">Select testbed...</option>
+          {% for t in assignable_parents %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Slots</label>
+        <input type="number" name="slots" class="form-control form-control-sm" value="1" min="1" max="100">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">Notes</label>
+        <input type="text" name="assignment_notes" class="form-control form-control-sm" placeholder="e.g. ports 1-4">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Assign</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
