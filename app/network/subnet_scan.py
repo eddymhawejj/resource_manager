@@ -144,7 +144,7 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
         total_scanned, subnets_scanned.
     """
     from app.extensions import db
-    from app.models import AppSettings, Resource, ResourceHost, Subnet
+    from app.models import AccessPoint, AppSettings, Resource, ResourceHost, Subnet
     from app.monitoring.ping_service import ping_host
 
     # Gather target subnets
@@ -270,6 +270,19 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
                 subnet_id=subnet.id,
             )
             db.session.add(host)
+
+            # If we resolved a hostname, create an SSH access point using it
+            # (hostnames are more stable than DHCP-assigned IPs)
+            if hostname:
+                access_point = AccessPoint(
+                    resource_id=resource.id,
+                    protocol='ssh',
+                    hostname=hostname,
+                    display_name=f'SSH ({hostname})',
+                    is_enabled=True,
+                )
+                db.session.add(access_point)
+
             known_addresses.add(ip_str)
             new_hosts.append(ip_str)
 
