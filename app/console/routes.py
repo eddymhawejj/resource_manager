@@ -18,27 +18,31 @@ sock = Sock()
 
 def _user_drive_path():
     """Return the absolute path to the current user's drive directory."""
-    base = os.path.join(current_app.root_path, '..', 'data', 'drive',
-                        str(current_user.id))
-    return os.path.realpath(base)
+    base_drive = current_app.config.get('DRIVE_PATH', os.path.join(
+        current_app.root_path, '..', 'data', 'drive'))
+    return os.path.realpath(os.path.join(base_drive, str(current_user.id)))
 
 
 @bp.route('/files')
 @login_required
 def list_files():
     """List files in the current user's drive directory."""
-    drive = _user_drive_path()
-    if not os.path.isdir(drive):
-        return jsonify([])
-    files = []
-    for name in sorted(os.listdir(drive)):
-        path = os.path.join(drive, name)
-        if os.path.isfile(path):
-            files.append({
-                'name': name,
-                'size': os.path.getsize(path),
-            })
-    return jsonify(files)
+    try:
+        drive = _user_drive_path()
+        if not os.path.isdir(drive):
+            return jsonify([])
+        files = []
+        for name in sorted(os.listdir(drive)):
+            path = os.path.join(drive, name)
+            if os.path.isfile(path):
+                files.append({
+                    'name': name,
+                    'size': os.path.getsize(path),
+                })
+        return jsonify(files)
+    except Exception as e:
+        current_app.logger.error(f'list_files error: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @bp.route('/files/<path:filename>')

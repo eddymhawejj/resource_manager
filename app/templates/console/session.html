@@ -579,7 +579,14 @@
   window.refreshDriveFiles = function() {
     var list = document.getElementById('driveFileList');
     list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:8px 0;"><i class="bi bi-arrow-clockwise" style="animation:spin 0.6s linear infinite;"></i></div>';
-    fetch(FILES_URL).then(function(r) { return r.json(); }).then(function(files) {
+    fetch(FILES_URL, { credentials: 'same-origin' }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(files) {
+      if (files.error) {
+        list.innerHTML = '<div style="color:#f87171;font-size:0.75rem;text-align:center;padding:8px 0;">' + files.error + '</div>';
+        return;
+      }
       if (!files.length) {
         list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:12px 0;">No files yet</div>';
         return;
@@ -599,8 +606,8 @@
           '</span>';
         list.appendChild(div);
       });
-    }).catch(function() {
-      list.innerHTML = '<div style="color:#f87171;font-size:0.75rem;text-align:center;padding:8px 0;">Failed to load</div>';
+    }).catch(function(err) {
+      list.innerHTML = '<div style="color:#f87171;font-size:0.75rem;text-align:center;padding:8px 0;">' + err.message + '</div>';
     });
   };
 

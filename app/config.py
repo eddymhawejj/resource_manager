@@ -36,6 +36,11 @@ class Config:
     # flask-sock: accept the 'guacamole' WebSocket subprotocol
     SOCK_SERVER_OPTIONS = {'subprotocols': ['guacamole']}
 
+    # File transfer shared drive
+    DRIVE_PATH = os.environ.get('DRIVE_PATH', os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'data', 'drive'))
+
     # Monitoring
     PING_INTERVAL_SECONDS = int(os.environ.get('PING_INTERVAL_SECONDS', 60))
     PING_TIMEOUT_SECONDS = int(os.environ.get('PING_TIMEOUT_SECONDS', 2))
