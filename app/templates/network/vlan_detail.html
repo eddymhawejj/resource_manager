@@ -79,8 +79,6 @@
 </div>
 
 <!-- Subnets -->
-<form id="bulkForm" method="POST" action="{{ url_for('network.bulk_reassign', vlan_id=vlan.id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="bi bi-hdd-network me-2"></i>Subnets</span>
@@ -138,7 +136,7 @@
             {% for host in hosts %}
             <tr>
               {% if current_user.is_admin %}
-              <td><input type="checkbox" class="form-check-input bulk-host-cb" name="host_ids" value="{{ host.id }}" data-subnet="{{ subnet.id }}"></td>
+              <td><input type="checkbox" class="form-check-input bulk-host-cb" data-host-id value="{{ host.id }}" data-subnet="{{ subnet.id }}"></td>
               {% endif %}
               <td><code>{{ host.address }}</code></td>
               <td>{{ host.label or '-' }}</td>
@@ -182,13 +180,13 @@
   <div class="card shadow-lg border-0" style="background: var(--card-bg, #fff);">
     <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
       <span id="bulkCount" class="fw-medium text-nowrap">0 selected</span>
-      <select name="resource_id" class="form-select form-select-sm" style="min-width: 220px;" required>
+      <select id="bulkResource" class="form-select form-select-sm" style="min-width: 220px;">
         <option value="">-- Assign to resource --</option>
         {% for r in resources %}
         <option value="{{ r.id }}">{{ r.name }}{% if r.parent %} ({{ r.parent.name }}){% endif %}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="btn btn-sm btn-success text-nowrap">
+      <button type="button" class="btn btn-sm btn-success text-nowrap" id="bulkSubmit">
         <i class="bi bi-arrow-right-circle me-1"></i>Reassign
       </button>
       <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" id="bulkClear">
@@ -198,7 +196,6 @@
   </div>
 </div>
 {% endif %}
-</form>
 
 {% endblock %}
 
@@ -206,51 +203,69 @@
 {% if current_user.is_admin %}
 <script>
 (function() {
-  const bar = document.getElementById('bulkBar');
-  const countEl = document.getElementById('bulkCount');
-  const clearBtn = document.getElementById('bulkClear');
+  var bar = document.getElementById('bulkBar');
+  var countEl = document.getElementById('bulkCount');
+  var clearBtn = document.getElementById('bulkClear');
+  var submitBtn = document.getElementById('bulkSubmit');
+  var resourceSel = document.getElementById('bulkResource');
   if (!bar) return;
 
   function update() {
-    const checked = document.querySelectorAll('.bulk-host-cb:checked');
-    const n = checked.length;
+    var checked = document.querySelectorAll('.bulk-host-cb:checked');
+    var n = checked.length;
     if (n > 0) {
       bar.classList.remove('d-none');
       countEl.textContent = n + ' selected';
     } else {
       bar.classList.add('d-none');
     }
-    // Sync select-all checkboxes
     document.querySelectorAll('.bulk-select-all').forEach(function(sa) {
-      const sid = sa.dataset.subnet;
-      const all = document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]');
-      const allChecked = document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]:checked');
+      var sid = sa.dataset.subnet;
+      var all = document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]');
+      var allChecked = document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]:checked');
       sa.checked = all.length > 0 && all.length === allChecked.length;
       sa.indeterminate = allChecked.length > 0 && allChecked.length < all.length;
     });
   }
 
-  // Individual checkboxes
   document.addEventListener('change', function(e) {
-    if (e.target.classList.contains('bulk-host-cb')) {
-      update();
-    }
-    // Select-all per subnet
+    if (e.target.classList.contains('bulk-host-cb')) update();
     if (e.target.classList.contains('bulk-select-all')) {
-      const sid = e.target.dataset.subnet;
-      const state = e.target.checked;
-      document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]').forEach(function(cb) {
-        cb.checked = state;
-      });
+      var sid = e.target.dataset.subnet;
+      var state = e.target.checked;
+      document.querySelectorAll('.bulk-host-cb[data-subnet="' + sid + '"]').forEach(function(cb) { cb.checked = state; });
       update();
     }
   });
 
-  // Clear button
   clearBtn.addEventListener('click', function() {
     document.querySelectorAll('.bulk-host-cb:checked').forEach(function(cb) { cb.checked = false; });
     document.querySelectorAll('.bulk-select-all').forEach(function(sa) { sa.checked = false; sa.indeterminate = false; });
     update();
+  });
+
+  submitBtn.addEventListener('click', function() {
+    var rid = resourceSel.value;
+    if (!rid) { alert('Please select a target resource.'); return; }
+    var checked = document.querySelectorAll('.bulk-host-cb:checked');
+    if (!checked.length) return;
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{{ url_for("network.bulk_reassign", vlan_id=vlan.id) }}';
+    form.style.display = 'none';
+    var csrf = document.createElement('input');
+    csrf.name = 'csrf_token'; csrf.value = '{{ csrf_token() }}';
+    form.appendChild(csrf);
+    var res = document.createElement('input');
+    res.name = 'resource_id'; res.value = rid;
+    form.appendChild(res);
+    checked.forEach(function(cb) {
+      var inp = document.createElement('input');
+      inp.name = 'host_ids'; inp.value = cb.value;
+      form.appendChild(inp);
+    });
+    document.body.appendChild(form);
+    form.submit();
   });
 })();
 </script>
