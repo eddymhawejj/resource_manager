@@ -649,19 +649,32 @@ def _can_access_check(resource):
 @admin_required
 def add_access_point(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
-    protocol = request.form.get('ap_protocol', 'rdp').strip().lower()
+    protocol = request.form.get('protocol', 'rdp').strip().lower()
     if protocol not in ('rdp', 'ssh'):
         flash('Protocol must be rdp or ssh.', 'danger')
         return redirect(url_for('resources.detail', resource_id=resource_id))
-    hostname = request.form.get('ap_hostname', '').strip()
-    if not hostname:
+
+    # Resolve hostname: from a linked host or a custom value
+    host_id = request.form.get('host_id', '').strip()
+    custom_hostname = request.form.get('hostname', '').strip()
+    if host_id and host_id != 'custom':
+        host = db.session.get(ResourceHost, int(host_id))
+        if host and host.resource_id == resource_id:
+            hostname = host.address
+        else:
+            flash('Invalid host selected.', 'danger')
+            return redirect(url_for('resources.detail', resource_id=resource_id))
+    elif custom_hostname:
+        hostname = custom_hostname
+    else:
         flash('Hostname is required.', 'danger')
         return redirect(url_for('resources.detail', resource_id=resource_id))
-    port_str = request.form.get('ap_port', '').strip()
+
+    port_str = request.form.get('port', '').strip()
     port = int(port_str) if port_str else None
-    username = request.form.get('ap_username', '').strip()
-    password = request.form.get('ap_password', '').strip()
-    display_name = request.form.get('ap_display_name', '').strip()
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    display_name = request.form.get('display_name', '').strip()
 
     ap = AccessPoint(
         resource_id=resource_id,
@@ -688,16 +701,30 @@ def edit_access_point(resource_id, ap_id):
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     if ap.resource_id != resource_id:
         abort(404)
-    ap.protocol = request.form.get('ap_protocol', ap.protocol).strip().lower()
-    ap.hostname = request.form.get('ap_hostname', ap.hostname).strip()
-    port_str = request.form.get('ap_port', '').strip()
+    # Toggle-only form (enable/disable button)
+    if 'is_enabled' in request.form and 'protocol' not in request.form:
+        ap.is_enabled = request.form.get('is_enabled') == 'true'
+        db.session.commit()
+        flash(f'Access point {"enabled" if ap.is_enabled else "disabled"}.', 'success')
+        return redirect(url_for('resources.detail', resource_id=resource_id))
+
+    ap.protocol = request.form.get('protocol', ap.protocol).strip().lower()
+    host_id = request.form.get('host_id', '').strip()
+    custom_hostname = request.form.get('hostname', '').strip()
+    if host_id and host_id != 'custom':
+        host = db.session.get(ResourceHost, int(host_id))
+        if host and host.resource_id == resource_id:
+            ap.hostname = host.address
+    elif custom_hostname:
+        ap.hostname = custom_hostname
+    port_str = request.form.get('port', '').strip()
     ap.port = int(port_str) if port_str else None
-    ap.username = request.form.get('ap_username', ap.username).strip()
-    new_password = request.form.get('ap_password', '').strip()
+    ap.username = request.form.get('username', ap.username).strip()
+    new_password = request.form.get('password', '').strip()
     if new_password:
         ap.password = new_password
-    ap.display_name = request.form.get('ap_display_name', ap.display_name).strip()
-    ap.is_enabled = 'ap_enabled' in request.form
+    ap.display_name = request.form.get('display_name', ap.display_name).strip()
+    ap.is_enabled = 'is_enabled' in request.form
     db.session.commit()
     flash(f'Access point updated.', 'success')
     return redirect(url_for('resources.detail', resource_id=resource_id))
