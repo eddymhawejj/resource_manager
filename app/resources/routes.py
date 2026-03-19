@@ -768,29 +768,26 @@ def connect_access_point(resource_id, ap_id):
     if ap.protocol == 'rdp':
         return jsonify({
             'protocol': 'rdp',
-            'uri': ap.generate_rdp_uri(),
-            'hostname': ap.hostname,
-            'port': ap.effective_port,
-            'username': ap.username,
-            'password': ap.password,
-            'rdp_fallback': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+            'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
         })
     else:
-        # SSH: return JSON for the modal
-        return jsonify({
+        # SSH: return command, password only for admins
+        result = {
             'protocol': 'ssh',
             'command': ap.generate_ssh_command(),
-            'password': ap.password,
             'hostname': ap.hostname,
             'port': ap.effective_port,
             'username': ap.username,
-        })
+        }
+        if current_user.is_admin:
+            result['password'] = ap.password
+        return jsonify(result)
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file', methods=['POST'])
 @login_required
 def download_rdp_file(resource_id, ap_id):
-    """Fallback: download .rdp file if ms-rd: URI doesn't work."""
+    """Download .rdp file with embedded credentials."""
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     if ap.resource_id != resource_id or ap.protocol != 'rdp':
         abort(404)
@@ -841,28 +838,27 @@ def force_connect_access_point(resource_id, ap_id):
     if ap.protocol == 'rdp':
         return jsonify({
             'protocol': 'rdp',
-            'uri': ap.generate_rdp_uri(),
-            'hostname': ap.hostname,
-            'port': ap.effective_port,
-            'username': ap.username,
-            'password': ap.password,
-            'rdp_fallback': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+            'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
         })
     else:
-        return jsonify({
+        result = {
             'protocol': 'ssh',
             'command': ap.generate_ssh_command(),
-            'password': ap.password,
             'hostname': ap.hostname,
             'port': ap.effective_port,
             'username': ap.username,
-        })
+        }
+        if current_user.is_admin:
+            result['password'] = ap.password
+        return jsonify(result)
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/password', methods=['POST'])
 @login_required
 def get_access_point_password(resource_id, ap_id):
-    """Return the password for clipboard copy before RDP download."""
+    """Return the password — admin only."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
     if not _can_access_check(resource):

@@ -616,17 +616,6 @@ class AccessPoint(db.Model):
     def label(self):
         return self.display_name or f'{self.protocol.upper()} ({self.hostname})'
 
-    def generate_rdp_uri(self):
-        """Generate ms-rd: URI to launch Remote Desktop directly from browser."""
-        import urllib.parse
-        params = {
-            'full address': f's:{self.hostname}:{self.effective_port}',
-            'username': f's:{self.username}' if self.username else '',
-        }
-        # Build the URI — ms-rd: protocol opens the Windows RDP client
-        query = '&'.join(f'{k}={urllib.parse.quote(v)}' for k, v in params.items() if v)
-        return f'ms-rd:{query}'
-
     def generate_rdp_file(self):
         """Generate .rdp file content for Windows Remote Desktop."""
         lines = [

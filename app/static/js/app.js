@@ -323,51 +323,34 @@ function exportTableToCSV(tableEl, filename) {
 }
 
 // ===== Access Point Connect =====
-function _handleConnectResponse(data) {
+function _handleConnectResponse(data, csrfToken) {
   if (data.protocol === 'rdp') {
-    // Copy password to clipboard
-    if (data.password) {
-      navigator.clipboard.writeText(data.password).then(function () {
-        showToast('Password copied to clipboard', 'success');
-      }).catch(function () {
-        showToast('Password: ' + data.password, 'info');
-      });
-    }
-    // Launch RDP via ms-rd: URI (opens Remote Desktop directly)
-    window.location.href = data.uri;
-    // Show fallback link in case ms-rd: isn't supported
-    if (data.rdp_fallback) {
-      setTimeout(function () {
-        showToast(
-          'If Remote Desktop did not open, <a href="#" onclick="_downloadRdpFallback(\'' +
-          data.rdp_fallback + '\'); return false;" class="alert-link">download the .rdp file</a> instead.',
-          'info', 8000, true
-        );
-      }, 1500);
-    }
+    // Download .rdp file (credentials are embedded, user doesn't need password)
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = data.rdp_download;
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrf_token';
+    csrf.value = csrfToken;
+    form.appendChild(csrf);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
   } else {
-    // SSH: show modal with command and password
+    // SSH: show modal with command (password only visible to admins)
     document.getElementById('ssh-command').value = data.command || '';
-    document.getElementById('ssh-password').value = data.password || '';
-    document.getElementById('ssh-password').type = 'password';
+    var pwRow = document.getElementById('ssh-password-row');
+    if (data.password) {
+      document.getElementById('ssh-password').value = data.password;
+      document.getElementById('ssh-password').type = 'password';
+      if (pwRow) pwRow.classList.remove('d-none');
+    } else {
+      document.getElementById('ssh-password').value = '';
+      if (pwRow) pwRow.classList.add('d-none');
+    }
     new bootstrap.Modal(document.getElementById('sshModal')).show();
   }
-}
-
-function _downloadRdpFallback(url) {
-  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
-                  document.querySelector('meta[name="csrf-token"]')?.content || '';
-  var form = document.createElement('form');
-  form.method = 'POST';
-  form.action = url;
-  var csrf = document.createElement('input');
-  csrf.type = 'hidden';
-  csrf.name = 'csrf_token';
-  csrf.value = csrfToken;
-  form.appendChild(csrf);
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
 }
 
 function connectAccess(resourceId, apId, protocol) {
@@ -379,7 +362,7 @@ function connectAccess(resourceId, apId, protocol) {
     headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
   })
   .then(function (r) { return r.json(); })
-  .then(_handleConnectResponse)
+  .then(function (data) { _handleConnectResponse(data, csrfToken); })
   .catch(function (err) {
     showToast('Failed to connect: ' + err, 'danger');
   });
@@ -397,7 +380,7 @@ function forceConnect(resourceId, apId, protocol, currentUserName) {
     headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' }
   })
   .then(function (r) { return r.json(); })
-  .then(_handleConnectResponse)
+  .then(function (data) { _handleConnectResponse(data, csrfToken); })
   .catch(function (err) {
     showToast('Failed to connect: ' + err, 'danger');
   });
