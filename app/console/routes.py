@@ -30,14 +30,28 @@ def list_files():
     drive = _user_drive_path()
     if not os.path.isdir(drive):
         return jsonify([])
+    try:
+        entries = os.listdir(drive)
+    except PermissionError:
+        # Drive dir created by guacd (root) — fix permissions so Flask can read
+        try:
+            import subprocess
+            subprocess.run(['chmod', '-R', 'a+rX', drive], check=True)
+            entries = os.listdir(drive)
+        except Exception:
+            return jsonify({'error': 'Permission denied on drive directory. '
+                            'Run: sudo chmod -R a+rX ' + drive}), 500
     files = []
-    for name in sorted(os.listdir(drive)):
+    for name in sorted(entries):
         path = os.path.join(drive, name)
         if os.path.isfile(path):
-            files.append({
-                'name': name,
-                'size': os.path.getsize(path),
-            })
+            try:
+                files.append({
+                    'name': name,
+                    'size': os.path.getsize(path),
+                })
+            except PermissionError:
+                files.append({'name': name, 'size': 0})
     return jsonify(files)
 
 
@@ -255,7 +269,17 @@ def tunnel(ws, ap_id):
         'username': ap.username or '',
         'password': ap.password or '',
     }
+    # Pre-create user drive directory with correct permissions so Flask
+    # can read files later.  guacd maps ./data/drive → /drive inside the
+    # container, so the container path is /drive/<user_id>.
     user_drive = f'/drive/{current_user.id}'
+    host_drive = os.path.join(
+        current_app.config.get('DRIVE_PATH', ''), str(current_user.id))
+    try:
+        os.makedirs(host_drive, mode=0o777, exist_ok=True)
+    except OSError:
+        pass  # Will be created by guacd with create-drive-path
+
     if ap.protocol == 'rdp':
         connect_params.update({
             'security': 'any',
