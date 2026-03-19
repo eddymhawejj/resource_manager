@@ -65,7 +65,7 @@ def create_app(config_class=Config):
     # JSON-aware error handling for AJAX/fetch requests
     def _wants_json():
         return (
-            request.accept_mimetypes.best == 'application/json'
+            request.accept_mimetypes.best_match(['application/json', 'text/html']) == 'application/json'
             or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
         )
 
