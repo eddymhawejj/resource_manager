@@ -766,13 +766,15 @@ def connect_access_point(resource_id, ap_id):
     db.session.commit()
 
     if ap.protocol == 'rdp':
-        rdp_content = ap.generate_rdp_file()
-        filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
-        return Response(
-            rdp_content,
-            mimetype='application/x-rdp',
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-        )
+        return jsonify({
+            'protocol': 'rdp',
+            'uri': ap.generate_rdp_uri(),
+            'hostname': ap.hostname,
+            'port': ap.effective_port,
+            'username': ap.username,
+            'password': ap.password,
+            'rdp_fallback': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+        })
     else:
         # SSH: return JSON for the modal
         return jsonify({
@@ -783,6 +785,22 @@ def connect_access_point(resource_id, ap_id):
             'port': ap.effective_port,
             'username': ap.username,
         })
+
+
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file', methods=['POST'])
+@login_required
+def download_rdp_file(resource_id, ap_id):
+    """Fallback: download .rdp file if ms-rd: URI doesn't work."""
+    ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    if ap.resource_id != resource_id or ap.protocol != 'rdp':
+        abort(404)
+    rdp_content = ap.generate_rdp_file()
+    filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
+    return Response(
+        rdp_content,
+        mimetype='application/x-rdp',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/force-connect', methods=['POST'])
@@ -821,13 +839,15 @@ def force_connect_access_point(resource_id, ap_id):
     db.session.commit()
 
     if ap.protocol == 'rdp':
-        rdp_content = ap.generate_rdp_file()
-        filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
-        return Response(
-            rdp_content,
-            mimetype='application/x-rdp',
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-        )
+        return jsonify({
+            'protocol': 'rdp',
+            'uri': ap.generate_rdp_uri(),
+            'hostname': ap.hostname,
+            'port': ap.effective_port,
+            'username': ap.username,
+            'password': ap.password,
+            'rdp_fallback': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
+        })
     else:
         return jsonify({
             'protocol': 'ssh',
