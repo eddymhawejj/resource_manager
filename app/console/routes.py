@@ -201,9 +201,18 @@ def tunnel(ws, ap_id):
     }
     if ap.protocol == 'rdp':
         connect_params.update({
-            'security': 'any',
+            'security': 'nla',
             'ignore-cert': 'true',
-            'resize-method': 'display-update',
+            'disable-auth': 'false',
+            'resize-method': 'reconnect',
+            'enable-font-smoothing': 'true',
+            'enable-wallpaper': 'false',
+            'enable-theming': 'true',
+            'enable-desktop-composition': 'false',
+            'enable-menu-animations': 'false',
+            'enable-full-window-drag': 'false',
+            'color-depth': '24',
+            'client-name': 'ResourceManager',
         })
     elif ap.protocol == 'ssh':
         connect_params.update({
@@ -336,9 +345,15 @@ def tunnel(ws, ap_id):
                     batch = b''.join(chunks)
                     bytes_to_browser += len(batch)
                     msg_count += 1
-                    if msg_count <= 3:
-                        log.debug(f'[tunnel:{ap_id}] <- guacd ({len(batch)}B): '
-                                  f'{batch[:80]}')
+                    if msg_count <= 5:
+                        text_preview = batch[:200].decode('utf-8', errors='replace')
+                        log.info(f'[tunnel:{ap_id}] <- guacd ({len(batch)}B): '
+                                 f'{text_preview}')
+                        # Parse for error instructions from guacd
+                        parsed = _parse_instruction(text_preview)
+                        if parsed and parsed[0] == 'error':
+                            log.error(f'[tunnel:{ap_id}] guacd error: '
+                                      f'{parsed[1]}')
                     ws.send(batch.decode('utf-8', errors='replace'))
 
             # Non-blocking check for browser data
