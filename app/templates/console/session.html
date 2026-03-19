@@ -579,15 +579,17 @@
   window.refreshDriveFiles = function() {
     var list = document.getElementById('driveFileList');
     list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:8px 0;"><i class="bi bi-arrow-clockwise" style="animation:spin 0.6s linear infinite;"></i></div>';
-    fetch(FILES_URL, { credentials: 'same-origin' }).then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+    fetch(FILES_URL, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(function(r) {
+      if (!r.ok) {
+        return r.text().then(function(body) {
+          var msg = 'HTTP ' + r.status;
+          try { var j = JSON.parse(body); if (j.error) msg = j.error; } catch(e) {}
+          throw new Error(msg);
+        });
+      }
       return r.json();
     }).then(function(files) {
-      if (files.error) {
-        list.innerHTML = '<div style="color:#f87171;font-size:0.75rem;text-align:center;padding:8px 0;">' + files.error + '</div>';
-        return;
-      }
-      if (!files.length) {
+      if (!files || !files.length) {
         list.innerHTML = '<div style="color:#666;font-size:0.75rem;text-align:center;padding:12px 0;">No files yet</div>';
         return;
       }

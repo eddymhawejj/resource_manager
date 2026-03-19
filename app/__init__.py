@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template, url_for
+from flask import Flask, render_template, url_for, request, jsonify, redirect
 
 from app.config import Config
 from app.extensions import db, migrate, login_manager, mail, csrf
@@ -62,17 +62,35 @@ def create_app(config_class=Config):
     from app.console.routes import init_sock
     init_sock(app)
 
-    # Error handlers
+    # JSON-aware error handling for AJAX/fetch requests
+    def _wants_json():
+        return (
+            request.accept_mimetypes.best == 'application/json'
+            or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        )
+
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        if _wants_json():
+            return jsonify({'error': 'Login required'}), 401
+        return redirect(url_for('auth.login', next=request.url))
+
     @app.errorhandler(404)
     def not_found(e):
+        if _wants_json():
+            return jsonify({'error': 'Not found'}), 404
         return render_template('errors/404.html'), 404
 
     @app.errorhandler(403)
     def forbidden(e):
+        if _wants_json():
+            return jsonify({'error': 'Forbidden'}), 403
         return render_template('errors/403.html'), 403
 
     @app.errorhandler(500)
     def server_error(e):
+        if _wants_json():
+            return jsonify({'error': str(e)}), 500
         return render_template('errors/500.html'), 500
 
     # Index redirect

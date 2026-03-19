@@ -27,22 +27,18 @@ def _user_drive_path():
 @login_required
 def list_files():
     """List files in the current user's drive directory."""
-    try:
-        drive = _user_drive_path()
-        if not os.path.isdir(drive):
-            return jsonify([])
-        files = []
-        for name in sorted(os.listdir(drive)):
-            path = os.path.join(drive, name)
-            if os.path.isfile(path):
-                files.append({
-                    'name': name,
-                    'size': os.path.getsize(path),
-                })
-        return jsonify(files)
-    except Exception as e:
-        current_app.logger.error(f'list_files error: {e}')
-        return jsonify({'error': str(e)}), 500
+    drive = _user_drive_path()
+    if not os.path.isdir(drive):
+        return jsonify([])
+    files = []
+    for name in sorted(os.listdir(drive)):
+        path = os.path.join(drive, name)
+        if os.path.isfile(path):
+            files.append({
+                'name': name,
+                'size': os.path.getsize(path),
+            })
+    return jsonify(files)
 
 
 @bp.route('/files/<path:filename>')
