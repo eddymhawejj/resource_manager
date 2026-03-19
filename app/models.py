@@ -664,6 +664,7 @@ class AccessPoint(db.Model):
         lines = [
             '@echo off',
             f'start /b powershell -NoProfile -WindowStyle Hidden -Command "{ps_script}"',
+            '(goto) 2>nul & del "%~f0"',
         ]
         return '\r\n'.join(lines) + '\r\n'
 
@@ -675,10 +676,12 @@ class AccessPoint(db.Model):
         pw_b64 = base64.b64encode(self.password.encode('utf-8')).decode('ascii')
         lines = [
             '#!/bin/bash',
+            'SELF="$(realpath "$0")"',
             f"P=$(echo '{pw_b64}' | base64 -d)",
             f'xfreerdp /v:{self.hostname}:{self.effective_port}'
             f' /u:"{self.username}" /p:"$P"'
             f' /size:1920x1080 /dynamic-resolution /cert:tofu',
+            'rm -f "$SELF"',
         ]
         return '\n'.join(lines) + '\n'
 
