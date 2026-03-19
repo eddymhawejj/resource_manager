@@ -21,21 +21,60 @@ sock = Sock()
 DRIVE_MAX_AGE_DAYS = 7
 
 
+def _drive_base():
+    """Return the base drive directory path."""
+    return os.path.realpath(current_app.config.get('DRIVE_PATH', os.path.join(
+        current_app.root_path, '..', 'data', 'drive')))
+
+
 def _resource_drive_path(resource_id):
     """Return the absolute path to a resource's drive directory."""
-    base_drive = current_app.config.get('DRIVE_PATH', os.path.join(
-        current_app.root_path, '..', 'data', 'drive'))
-    return os.path.realpath(os.path.join(base_drive, str(resource_id)))
+    return os.path.join(_drive_base(), str(resource_id))
 
 
-def _fix_drive_permissions(path):
-    """Fix permissions on a drive path created by guacd (root).
+def _ensure_drive_dir(resource_id):
+    """Ensure the resource drive directory exists and is accessible.
 
-    Returns True if permissions were fixed or already OK, False on failure.
+    Handles the case where the base drive dir was created by Docker (root)
+    and may not be writable.  Returns the path or None on failure.
     """
+    base = _drive_base()
+    drive = os.path.join(base, str(resource_id))
+
+    # If drive already exists and is accessible, short-circuit
+    if os.path.isdir(drive) and os.access(drive, os.R_OK | os.W_OK):
+        return drive
+
+    # Fix base dir permissions if it exists but isn't writable
+    if os.path.isdir(base) and not os.access(base, os.W_OK):
+        try:
+            subprocess.run(['chmod', 'a+rwx', base], check=True,
+                           capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+    # Create the resource subdirectory
     try:
-        subprocess.run(['chmod', '-R', 'a+rwX', path], check=True,
-                       capture_output=True, timeout=10)
+        os.makedirs(drive, mode=0o777, exist_ok=True)
+    except OSError:
+        pass
+
+    # Fix permissions on the resource dir (may have been created by guacd)
+    if os.path.isdir(drive) and not os.access(drive, os.R_OK | os.W_OK):
+        try:
+            subprocess.run(['chmod', '-R', 'a+rwX', drive], check=True,
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
+
+    return drive if os.path.isdir(drive) else None
+
+
+def _fix_file_permissions(filepath):
+    """Make a single file readable+writable (created by guacd as root)."""
+    try:
+        subprocess.run(['chmod', 'a+rw', filepath], check=True,
+                       capture_output=True, timeout=5)
         return True
     except Exception:
         return False
@@ -56,19 +95,13 @@ def _check_resource_access(resource_id):
 def list_files(resource_id):
     """List files in a resource's drive directory."""
     _check_resource_access(resource_id)
-    drive = _resource_drive_path(resource_id)
-    if not os.path.isdir(drive):
+    drive = _ensure_drive_dir(resource_id)
+    if not drive or not os.path.isdir(drive):
         return jsonify([])
     try:
         entries = os.listdir(drive)
     except PermissionError:
-        if _fix_drive_permissions(drive):
-            try:
-                entries = os.listdir(drive)
-            except Exception:
-                return jsonify({'error': 'Permission denied on drive directory.'}), 500
-        else:
-            return jsonify({'error': 'Permission denied on drive directory.'}), 500
+        return jsonify({'error': 'Permission denied on drive directory.'}), 500
     files = []
     for name in sorted(entries):
         path = os.path.join(drive, name)
@@ -88,14 +121,16 @@ def list_files(resource_id):
 def download_file(resource_id, filename):
     """Download a file from a resource's drive directory, then delete it."""
     _check_resource_access(resource_id)
-    drive = _resource_drive_path(resource_id)
+    drive = _ensure_drive_dir(resource_id)
+    if not drive:
+        abort(404)
     safe = os.path.realpath(os.path.join(drive, filename))
     if not safe.startswith(drive + os.sep) and safe != drive:
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
     if not os.access(safe, os.R_OK):
-        _fix_drive_permissions(drive)
+        _fix_file_permissions(safe)
 
     # Auto-delete file after it has been sent to the client
     file_to_delete = safe
@@ -117,14 +152,16 @@ def download_file(resource_id, filename):
 def delete_file(resource_id, filename):
     """Delete a file from a resource's drive directory."""
     _check_resource_access(resource_id)
-    drive = _resource_drive_path(resource_id)
+    drive = _ensure_drive_dir(resource_id)
+    if not drive:
+        abort(404)
     safe = os.path.realpath(os.path.join(drive, filename))
     if not safe.startswith(drive + os.sep) and safe != drive:
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
     if not os.access(safe, os.W_OK):
-        _fix_drive_permissions(drive)
+        _fix_file_permissions(safe)
     os.remove(safe)
     return '', 204
 
@@ -344,12 +381,7 @@ def tunnel(ws, ap_id):
     # container, so the container path is /drive/<resource_id>.
     resource_id = resource.id
     container_drive = f'/drive/{resource_id}'
-    host_drive = os.path.join(
-        current_app.config.get('DRIVE_PATH', ''), str(resource_id))
-    try:
-        os.makedirs(host_drive, mode=0o777, exist_ok=True)
-    except OSError:
-        pass  # Will be created by guacd with create-drive-path
+    _ensure_drive_dir(resource_id)
 
     if ap.protocol == 'rdp':
         connect_params.update({

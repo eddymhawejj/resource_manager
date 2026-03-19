@@ -13,6 +13,15 @@ def create_app(config_class=Config):
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(os.path.join(app.static_folder, 'uploads'), exist_ok=True)
 
+    # Ensure drive base directory exists and is world-writable
+    drive_path = app.config.get('DRIVE_PATH', os.path.join(
+        app.root_path, '..', 'data', 'drive'))
+    os.makedirs(drive_path, mode=0o777, exist_ok=True)
+    try:
+        os.chmod(drive_path, 0o777)
+    except OSError:
+        pass
+
     # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)
