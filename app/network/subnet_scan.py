@@ -162,6 +162,19 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
     # Build set of already-known host addresses
     known_addresses = {h.address for h in ResourceHost.query.with_entities(ResourceHost.address).all()}
 
+    # Collect existing scan-discovered hosts missing an SSH access point,
+    # so we can backfill hostnames on rescan.
+    hosts_needing_access_point = []
+    existing_ap_resource_ids = {
+        ap.resource_id for ap in AccessPoint.query.filter(
+            AccessPoint.protocol == 'ssh',
+            AccessPoint.display_name.like('SSH (%'),
+        ).with_entities(AccessPoint.resource_id).all()
+    }
+    for rh in ResourceHost.query.filter_by(label='Subnet scan').all():
+        if rh.resource_id not in existing_ap_resource_ids:
+            hosts_needing_access_point.append(rh)
+
     snmp_community = AppSettings.get('snmp_community', 'public')
 
     new_hosts = []
@@ -328,6 +341,27 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
             phase='pinging', subnets_done=subnets_scanned,
             new_hosts=len(new_hosts),
         )
+
+    # Backfill SSH access points for previously discovered hosts that are
+    # missing one (e.g. created before access point logic was added).
+    if hosts_needing_access_point:
+        _update_progress(phase='resolving', subnet='backfill')
+        backfilled = 0
+        for rh in hosts_needing_access_point:
+            hostname = resolve_hostname(rh.address, snmp_community=snmp_community)
+            if hostname:
+                access_point = AccessPoint(
+                    resource_id=rh.resource_id,
+                    protocol='ssh',
+                    hostname=hostname,
+                    display_name=f'SSH ({hostname})',
+                    is_enabled=True,
+                )
+                db.session.add(access_point)
+                backfilled += 1
+        if backfilled:
+            db.session.commit()
+        logger.info(f'Backfilled {backfilled} SSH access points for {len(hosts_needing_access_point)} existing hosts')
 
     AppSettings.set('subnet_last_scan', datetime.now(timezone.utc).isoformat())
 
