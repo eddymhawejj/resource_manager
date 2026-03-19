@@ -103,34 +103,81 @@ def _parse_instruction(data):
     return None
 
 
+@bp.route('/diagnostics')
+@login_required
+def diagnostics():
+    """Check guacd connectivity and report status."""
+    import json
+
+    guacd_host = current_app.config.get('GUACD_HOST', 'localhost')
+    guacd_port = current_app.config.get('GUACD_PORT', 4822)
+
+    result = {
+        'guacd_host': guacd_host,
+        'guacd_port': guacd_port,
+        'guacd_reachable': False,
+        'guacd_version': None,
+        'error': None,
+    }
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect((guacd_host, guacd_port))
+        result['guacd_reachable'] = True
+
+        # Send a select to see if guacd responds
+        s.sendall(_encode_instruction('select', ['rdp']).encode('utf-8'))
+        buf = b''
+        while b';' not in buf:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+        if buf:
+            parsed = _parse_instruction(buf.decode('utf-8', errors='replace'))
+            if parsed:
+                result['guacd_response'] = parsed[0]
+                result['guacd_args'] = parsed[1][:5]  # first 5 args
+        s.close()
+    except Exception as e:
+        result['error'] = f'{type(e).__name__}: {e}'
+
+    return json.dumps(result, indent=2), 200, {'Content-Type': 'application/json'}
+
+
 @sock.route('/<int:ap_id>/tunnel', bp=bp)
 def tunnel(ws, ap_id):
-    """WebSocket <-> guacd TCP relay.
+    """WebSocket <-> guacd TCP relay."""
+    log = current_app.logger
 
-    Uses pyguacamole's GuacamoleClient for a clean server-side handshake
-    with guacd, then relays Guacamole instructions between the browser
-    and guacd in a single-threaded select loop.
+    log.info(f'[tunnel:{ap_id}] WebSocket opened, user authenticated: '
+             f'{current_user.is_authenticated}')
 
-    The JS Guacamole.Client drives the protocol through the WebSocket.
-    We intercept 'select' and 'connect' during the handshake to inject
-    the correct protocol and credentials from the access point.
-    """
     if not current_user.is_authenticated:
+        log.warning(f'[tunnel:{ap_id}] Rejected: not authenticated')
         _ws_close(ws, 'Not authenticated')
         return
 
     ap = db.session.get(AccessPoint, ap_id)
     if not ap or not ap.is_enabled:
+        log.warning(f'[tunnel:{ap_id}] Rejected: access point not found or disabled')
         _ws_close(ws, 'Access point not found')
         return
 
     resource = db.session.get(Resource, ap.resource_id)
     if not resource or not can_user_access(current_user, resource):
+        log.warning(f'[tunnel:{ap_id}] Rejected: access denied for user {current_user.id}')
         _ws_close(ws, 'Access denied')
         return
 
     guacd_host = current_app.config.get('GUACD_HOST', 'localhost')
     guacd_port = current_app.config.get('GUACD_PORT', 4822)
+
+    log.info(f'[tunnel:{ap_id}] AP: protocol={ap.protocol} '
+             f'host={ap.hostname}:{ap.effective_port} '
+             f'user={ap.username or "(none)"}')
+    log.info(f'[tunnel:{ap_id}] Connecting to guacd at {guacd_host}:{guacd_port}')
 
     # Open raw TCP connection to guacd
     guacd_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -138,12 +185,12 @@ def tunnel(ws, ap_id):
     try:
         guacd_sock.connect((guacd_host, guacd_port))
     except Exception as e:
-        current_app.logger.error(
-            f'Cannot connect to guacd at {guacd_host}:{guacd_port}: {e}')
+        log.error(f'[tunnel:{ap_id}] Cannot connect to guacd at '
+                  f'{guacd_host}:{guacd_port}: {e}')
         _ws_close(ws, 'Cannot reach guacd')
         return
 
-    guacd_sock.setblocking(False)
+    log.info(f'[tunnel:{ap_id}] Connected to guacd')
 
     # Connection parameters to inject during handshake
     connect_params = {
@@ -171,21 +218,18 @@ def tunnel(ws, ap_id):
     ap.last_accessed_at = datetime.now(timezone.utc)
     db.session.commit()
 
-    # Handshake phase tracking
-    phase = 'select'  # select -> wait_args -> handshake -> connected
-    args_list = None
-
-    # --- Phase 1: Do the guacd handshake synchronously before entering
-    # the relay loop.  This avoids threading issues entirely. ---
+    # --- Phase 1: guacd handshake ---
 
     try:
-        # Step 1: Send 'select' with protocol
         guacd_sock.setblocking(True)
         guacd_sock.settimeout(10)
+
+        # Step 1: Send 'select'
         instruction = _encode_instruction('select', [ap.protocol])
+        log.info(f'[tunnel:{ap_id}] -> guacd: {instruction.strip()}')
         guacd_sock.sendall(instruction.encode('utf-8'))
 
-        # Step 2: Receive 'args' from guacd
+        # Step 2: Receive 'args'
         buf = b''
         while b';' not in buf:
             chunk = guacd_sock.recv(4096)
@@ -194,29 +238,35 @@ def tunnel(ws, ap_id):
             buf += chunk
 
         args_text = buf.decode('utf-8')
+        log.info(f'[tunnel:{ap_id}] <- guacd: {args_text[:200]}')
         parsed = _parse_instruction(args_text)
         if not parsed or parsed[0] != 'args':
             raise ConnectionError(f'Expected args from guacd, got: {args_text[:100]}')
         args_list = parsed[1]
 
         # Step 3: Send size, audio, video, image, connect
-        guacd_sock.sendall(
-            _encode_instruction('size', ['1920', '1080', '96']).encode('utf-8'))
-        guacd_sock.sendall(
-            _encode_instruction('audio', ['audio/L16']).encode('utf-8'))
-        guacd_sock.sendall(
-            _encode_instruction('video', []).encode('utf-8'))
-        guacd_sock.sendall(
-            _encode_instruction('image', []).encode('utf-8'))
+        for instr_name, instr_args in [
+            ('size', ['1920', '1080', '96']),
+            ('audio', ['audio/L16']),
+            ('video', []),
+            ('image', []),
+        ]:
+            instr = _encode_instruction(instr_name, instr_args)
+            log.debug(f'[tunnel:{ap_id}] -> guacd: {instr.strip()}')
+            guacd_sock.sendall(instr.encode('utf-8'))
 
         # Build connect args matching the args list from guacd
         connect_args = []
         for arg_name in args_list:
             connect_args.append(connect_params.get(arg_name, ''))
-        guacd_sock.sendall(
-            _encode_instruction('connect', connect_args).encode('utf-8'))
+        connect_instr = _encode_instruction('connect', connect_args)
+        # Log connect without password
+        safe_args = [f'{k}={v}' for k, v in zip(args_list, connect_args)
+                     if k != 'password']
+        log.info(f'[tunnel:{ap_id}] -> guacd: connect({", ".join(safe_args)})')
+        guacd_sock.sendall(connect_instr.encode('utf-8'))
 
-        # Step 4: Receive 'ready' from guacd
+        # Step 4: Receive 'ready'
         buf = b''
         while b';' not in buf:
             chunk = guacd_sock.recv(4096)
@@ -225,24 +275,31 @@ def tunnel(ws, ap_id):
             buf += chunk
 
         ready_text = buf.decode('utf-8')
+        log.info(f'[tunnel:{ap_id}] <- guacd: {ready_text[:200]}')
         parsed = _parse_instruction(ready_text)
         if not parsed or parsed[0] != 'ready':
             raise ConnectionError(
                 f'Expected ready from guacd, got: {ready_text[:100]}')
 
+        connection_id = parsed[1][0] if parsed[1] else '?'
+        log.info(f'[tunnel:{ap_id}] Handshake complete, connection_id={connection_id}')
         guacd_sock.setblocking(False)
 
     except Exception as e:
-        current_app.logger.error(f'guacd handshake failed for AP {ap_id}: {e}')
+        log.error(f'[tunnel:{ap_id}] guacd handshake failed: {e}')
         guacd_sock.close()
         _ws_close(ws, 'guacd handshake failed')
         return
 
-    # --- Phase 2: Relay loop. Single-threaded: poll guacd with select,
-    # receive from browser with a short timeout. ---
+    # --- Phase 2: Relay loop ---
 
     sel = selectors.DefaultSelector()
     sel.register(guacd_sock, selectors.EVENT_READ)
+    bytes_to_browser = 0
+    bytes_to_guacd = 0
+    msg_count = 0
+
+    log.info(f'[tunnel:{ap_id}] Entering relay loop')
 
     try:
         while True:
@@ -254,23 +311,39 @@ def tunnel(ws, ap_id):
                 except (BlockingIOError, socket.error):
                     chunk = None
                 if not chunk:
+                    log.info(f'[tunnel:{ap_id}] guacd disconnected '
+                             f'(sent {bytes_to_browser}B to browser, '
+                             f'{bytes_to_guacd}B to guacd)')
                     return  # guacd disconnected
+                bytes_to_browser += len(chunk)
+                msg_count += 1
+                if msg_count <= 3:
+                    log.debug(f'[tunnel:{ap_id}] <- guacd ({len(chunk)}B): '
+                              f'{chunk[:80]}')
                 ws.send(chunk.decode('utf-8', errors='replace'))
 
             # Check if browser has data to send to guacd
             try:
                 data = ws.receive(timeout=0.02)
-            except Exception:
+            except Exception as e:
+                log.info(f'[tunnel:{ap_id}] Browser disconnected: '
+                         f'{type(e).__name__}: {e} '
+                         f'(sent {bytes_to_browser}B to browser, '
+                         f'{bytes_to_guacd}B to guacd)')
                 return  # browser disconnected
             if data is None:
-                return
+                continue
 
             raw = data.encode('utf-8') if isinstance(data, str) else data
+            bytes_to_guacd += len(raw)
             guacd_sock.sendall(raw)
 
     except Exception as e:
-        current_app.logger.error(f'Guacamole tunnel error for AP {ap_id}: {e}')
+        log.error(f'[tunnel:{ap_id}] Relay error: {type(e).__name__}: {e}')
     finally:
+        log.info(f'[tunnel:{ap_id}] Tunnel closed '
+                 f'(sent {bytes_to_browser}B to browser, '
+                 f'{bytes_to_guacd}B to guacd)')
         sel.close()
         try:
             guacd_sock.close()
