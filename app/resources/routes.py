@@ -784,13 +784,16 @@ def connect_access_point(resource_id, ap_id):
         return jsonify(result)
 
 
-@bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file', methods=['POST'])
+@bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file')
 @login_required
 def download_rdp_file(resource_id, ap_id):
     """Download .rdp file with embedded credentials."""
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
+    resource = db.session.get(Resource, ap.resource_id) or abort(404)
     if ap.resource_id != resource_id or ap.protocol != 'rdp':
         abort(404)
+    if not _can_access_check(resource):
+        abort(403)
     rdp_content = ap.generate_rdp_file()
     filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
     return Response(

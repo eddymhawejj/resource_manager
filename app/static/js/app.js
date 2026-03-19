@@ -326,17 +326,7 @@ function exportTableToCSV(tableEl, filename) {
 function _handleConnectResponse(data, csrfToken) {
   if (data.protocol === 'rdp') {
     // Download .rdp file (credentials are embedded, user doesn't need password)
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = data.rdp_download;
-    var csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = 'csrf_token';
-    csrf.value = csrfToken;
-    form.appendChild(csrf);
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+    window.location.href = data.rdp_download;
   } else {
     // SSH: show modal with command (password only visible to admins)
     document.getElementById('ssh-command').value = data.command || '';
