@@ -90,6 +90,11 @@
         </a>
       </li>
       <li class="nav-item">
+        <a href="{{ url_for('admin.drive_management') }}" class="{% if request.endpoint and 'drive' in request.endpoint %}active{% endif %}">
+          <i class="bi bi-hdd"></i> Drive Storage
+        </a>
+      </li>
+      <li class="nav-item">
         <a href="{{ url_for('admin.audit_log') }}" class="{% if request.endpoint and 'audit_log' in request.endpoint %}active{% endif %}">
           <i class="bi bi-journal-text"></i> Audit Log
         </a>

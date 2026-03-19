@@ -1,12 +1,13 @@
 import os
+import shutil
 
-from flask import render_template, redirect, url_for, flash, abort, current_app, request
+from flask import render_template, redirect, url_for, flash, abort, current_app, request, jsonify
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
 from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm, SwitchSettingsForm
-from app.extensions import db
+from app.extensions import csrf, db
 from app.models import User, Resource, Booking, AppSettings, AuditLog
 
 
@@ -274,3 +275,92 @@ def audit_log():
     return render_template('admin/audit_log.html', entries=entries,
                            page=page, total_pages=total_pages,
                            action_filter=action_filter)
+
+
+# --- Drive Storage Management ---
+
+def _get_drive_base():
+    """Return the base drive path."""
+    return current_app.config.get('DRIVE_PATH', os.path.join(
+        current_app.root_path, '..', 'data', 'drive'))
+
+
+def _get_drive_usage():
+    """Get per-user drive usage stats."""
+    base = os.path.realpath(_get_drive_base())
+    if not os.path.isdir(base):
+        return [], 0
+
+    users_by_id = {u.id: u for u in User.query.all()}
+    usage = []
+    total = 0
+
+    for entry in sorted(os.scandir(base), key=lambda e: e.name):
+        if not entry.is_dir():
+            continue
+        try:
+            user_id = int(entry.name)
+        except ValueError:
+            continue
+        dir_size = 0
+        file_count = 0
+        for dirpath, _dirs, files in os.walk(entry.path):
+            for f in files:
+                try:
+                    dir_size += os.path.getsize(os.path.join(dirpath, f))
+                    file_count += 1
+                except OSError:
+                    pass
+        user = users_by_id.get(user_id)
+        usage.append({
+            'user_id': user_id,
+            'username': user.username if user else f'(deleted user {user_id})',
+            'file_count': file_count,
+            'size': dir_size,
+            'path': entry.path,
+        })
+        total += dir_size
+
+    return usage, total
+
+
+@bp.route('/drive')
+@login_required
+@admin_required
+def drive_management():
+    """Admin drive storage overview."""
+    usage, total = _get_drive_usage()
+    return render_template('admin/drive.html', usage=usage, total_size=total)
+
+
+@bp.route('/drive/<int:user_id>/clear', methods=['POST'])
+@login_required
+@admin_required
+def clear_user_drive(user_id):
+    """Clear all files from a specific user's drive directory."""
+    base = os.path.realpath(_get_drive_base())
+    user_dir = os.path.realpath(os.path.join(base, str(user_id)))
+    # Safety: ensure it's under the base drive path
+    if not user_dir.startswith(base + os.sep):
+        abort(403)
+    if os.path.isdir(user_dir):
+        shutil.rmtree(user_dir, ignore_errors=True)
+        os.makedirs(user_dir, mode=0o777, exist_ok=True)
+    user = db.session.get(User, user_id)
+    name = user.username if user else f'user {user_id}'
+    flash(f'Drive cleared for {name}.', 'success')
+    return redirect(url_for('admin.drive_management'))
+
+
+@bp.route('/drive/clear-all', methods=['POST'])
+@login_required
+@admin_required
+def clear_all_drives():
+    """Clear all user drive directories."""
+    base = os.path.realpath(_get_drive_base())
+    if os.path.isdir(base):
+        for entry in os.scandir(base):
+            if entry.is_dir():
+                shutil.rmtree(entry.path, ignore_errors=True)
+    flash('All drive storage cleared.', 'success')
+    return redirect(url_for('admin.drive_management'))

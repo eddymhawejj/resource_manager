@@ -1,5 +1,7 @@
 import os
+import shutil
 import socket
+import subprocess
 import threading
 
 from flask import (
@@ -23,6 +25,19 @@ def _user_drive_path():
     return os.path.realpath(os.path.join(base_drive, str(current_user.id)))
 
 
+def _fix_drive_permissions(path):
+    """Fix permissions on a drive path created by guacd (root).
+
+    Returns True if permissions were fixed or already OK, False on failure.
+    """
+    try:
+        subprocess.run(['chmod', '-R', 'a+rX', path], check=True,
+                       capture_output=True, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
 @bp.route('/files')
 @login_required
 def list_files():
@@ -34,11 +49,12 @@ def list_files():
         entries = os.listdir(drive)
     except PermissionError:
         # Drive dir created by guacd (root) — fix permissions so Flask can read
-        try:
-            import subprocess
-            subprocess.run(['chmod', '-R', 'a+rX', drive], check=True)
-            entries = os.listdir(drive)
-        except Exception:
+        if _fix_drive_permissions(drive):
+            try:
+                entries = os.listdir(drive)
+            except Exception:
+                return jsonify({'error': 'Permission denied on drive directory.'}), 500
+        else:
             return jsonify({'error': 'Permission denied on drive directory. '
                             'Run: sudo chmod -R a+rX ' + drive}), 500
     files = []
@@ -66,6 +82,9 @@ def download_file(filename):
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
+    # Fix permissions if file is not readable (created by guacd as root)
+    if not os.access(safe, os.R_OK):
+        _fix_drive_permissions(drive)
     return send_from_directory(drive, filename, as_attachment=True)
 
 
@@ -80,6 +99,9 @@ def delete_file(filename):
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
+    # Fix permissions if needed (file created by guacd as root)
+    if not os.access(safe, os.W_OK):
+        _fix_drive_permissions(drive)
     os.remove(safe)
     return '', 204
 
