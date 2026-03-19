@@ -26,12 +26,18 @@
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
         <li>
-          <form method="POST" action="{{ url_for('network.scan_subnets') }}">
+          <form method="POST" action="{{ url_for('network.scan_subnets') }}" onclick="event.stopPropagation()">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="dropdown-item">
-              <i class="bi bi-broadcast me-1 text-warning"></i>Scan Subnets
-              {% if last_scan %}<small class="text-muted ms-1">{{ last_scan[:16]|replace('T', ' ') }}</small>{% endif %}
-            </button>
+            <div class="dropdown-item d-flex align-items-center gap-2 p-2">
+              <button type="submit" class="btn btn-sm btn-outline-warning flex-grow-1 text-start">
+                <i class="bi bi-broadcast me-1"></i>Scan Subnets
+                {% if last_scan %}<small class="text-muted ms-1">{{ last_scan[:16]|replace('T', ' ') }}</small>{% endif %}
+              </button>
+              <div class="form-check form-check-inline m-0" title="Delete all previously discovered devices before scanning">
+                <input class="form-check-input" type="checkbox" name="wipe_devices" value="1" id="wipe-scan">
+                <label class="form-check-label small" for="wipe-scan">Wipe</label>
+              </div>
+            </div>
           </form>
         </li>
         {% if switch_configured %}
@@ -45,11 +51,17 @@
           </form>
         </li>
         <li>
-          <form method="POST" action="{{ url_for('network.discover_now') }}">
+          <form method="POST" action="{{ url_for('network.discover_now') }}" onclick="event.stopPropagation()">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="dropdown-item">
-              <i class="bi bi-search me-1 text-info"></i>Discover Hosts (LLDP)
-            </button>
+            <div class="dropdown-item d-flex align-items-center gap-2 p-2">
+              <button type="submit" class="btn btn-sm btn-outline-info flex-grow-1 text-start">
+                <i class="bi bi-search me-1"></i>Discover Hosts (LLDP)
+              </button>
+              <div class="form-check form-check-inline m-0" title="Delete all previously discovered devices before discovery">
+                <input class="form-check-input" type="checkbox" name="wipe_devices" value="1" id="wipe-discover">
+                <label class="form-check-label small" for="wipe-discover">Wipe</label>
+              </div>
+            </div>
           </form>
         </li>
         {% endif %}

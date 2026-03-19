@@ -27,13 +27,21 @@
             {{ sd.utilization }}%
           </span>
           {% if current_user.is_admin %}
-          <form method="POST" action="{{ url_for('network.scan_single_subnet', subnet_id=sd.subnet.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="next" value="{{ url_for('network.ipam') }}">
-            <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Scan this subnet">
-              <i class="bi bi-radar"></i>
-            </button>
-          </form>
+          <div class="d-inline-flex align-items-center gap-1">
+            <form method="POST" action="{{ url_for('network.scan_single_subnet', subnet_id=sd.subnet.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ url_for('network.ipam') }}">
+              <input type="hidden" name="wipe_devices" value="" class="wipe-hidden-{{ sd.subnet.id }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Scan this subnet">
+                <i class="bi bi-radar"></i>
+              </button>
+            </form>
+            <div class="form-check form-check-inline m-0" title="Wipe discovered devices in this subnet before scanning">
+              <input class="form-check-input" type="checkbox" id="wipe-subnet-{{ sd.subnet.id }}"
+                     onchange="document.querySelector('.wipe-hidden-{{ sd.subnet.id }}').value = this.checked ? '1' : ''">
+              <label class="form-check-label small text-muted" for="wipe-subnet-{{ sd.subnet.id }}">Wipe</label>
+            </div>
+          </div>
           {% endif %}
         </div>
       </div>

@@ -6,7 +6,33 @@ from flask_login import login_required, current_user
 from app.network import bp
 from app.network.forms import VlanForm, SubnetForm
 from app.extensions import db
-from app.models import Vlan, Subnet, Resource, ResourceHost, AppSettings
+from app.models import Vlan, Subnet, Resource, ResourceHost, AppSettings, PingResult
+
+
+def _wipe_discovered_devices(subnet_id=None):
+    """Delete all resources with resource_type='device'.
+
+    If subnet_id is given, only delete devices whose hosts are in that subnet.
+    Returns the count of deleted devices.
+    """
+    query = Resource.query.filter_by(resource_type='device')
+    if subnet_id:
+        device_ids_in_subnet = db.session.query(ResourceHost.resource_id).filter_by(
+            subnet_id=subnet_id
+        ).subquery()
+        query = query.filter(Resource.id.in_(db.session.query(device_ids_in_subnet)))
+
+    devices = query.all()
+    count = len(devices)
+    for device in devices:
+        # Delete ping results for device hosts
+        host_ids = [h.id for h in device.hosts.all()]
+        if host_ids:
+            PingResult.query.filter(PingResult.host_id.in_(host_ids)).delete(synchronize_session=False)
+        db.session.delete(device)
+    if count:
+        db.session.commit()
+    return count
 
 
 def admin_required(f):
@@ -228,6 +254,12 @@ def sync_now():
 def discover_now():
     """Trigger LLDP-based host discovery from the switch."""
     from app.network.switch_sync import discover_hosts_from_switch
+
+    if request.form.get('wipe_devices'):
+        count = _wipe_discovered_devices()
+        if count:
+            flash(f'Wiped {count} previously discovered device(s).', 'info')
+
     result = discover_hosts_from_switch()
     if 'error' in result:
         flash(f'Discovery failed: {result["error"]}', 'danger')
@@ -249,6 +281,12 @@ def scan_subnets():
     """Launch a background ping-sweep scan of all subnets."""
     from flask import current_app
     from app.network.subnet_scan import start_scan_background
+
+    if request.form.get('wipe_devices'):
+        count = _wipe_discovered_devices()
+        if count:
+            flash(f'Wiped {count} previously discovered device(s).', 'info')
+
     started = start_scan_background(current_app._get_current_object())
     if not started:
         flash('A subnet scan is already running.', 'warning')
@@ -265,6 +303,12 @@ def scan_single_subnet(subnet_id):
     from flask import current_app
     from app.network.subnet_scan import start_scan_background
     subnet = db.session.get(Subnet, subnet_id) or abort(404)
+
+    if request.form.get('wipe_devices'):
+        count = _wipe_discovered_devices(subnet_id=subnet_id)
+        if count:
+            flash(f'Wiped {count} previously discovered device(s) in {subnet.cidr}.', 'info')
+
     started = start_scan_background(
         current_app._get_current_object(), subnet_id=subnet_id,
     )
