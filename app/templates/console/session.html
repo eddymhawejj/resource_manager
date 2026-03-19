@@ -121,17 +121,12 @@
   var keyboard = null;
   var mouse = null;
 
-  function buildWsUrl(path) {
-    var loc = window.location;
-    var scheme = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-    return scheme + '//' + loc.host + path;
-  }
-
   function connect() {
     statusDot.className = 'status-indicator connecting';
     overlay.classList.remove('active');
 
-    var tunnel = new Guacamole.WebSocketTunnel(buildWsUrl(TUNNEL_PATH));
+    // Pass the bare path — Guacamole.WebSocketTunnel converts it to ws(s)://
+    var tunnel = new Guacamole.WebSocketTunnel(TUNNEL_PATH);
     client = new Guacamole.Client(tunnel);
 
     // Attach display
