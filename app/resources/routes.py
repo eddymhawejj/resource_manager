@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone, timedelta
 
-from flask import render_template, redirect, url_for, flash, abort, request, Response, jsonify
+from flask import render_template, redirect, url_for, flash, abort, request, jsonify
 from flask_login import login_required, current_user
 
 from app.resources import bp
@@ -807,65 +807,15 @@ def connect_access_point(resource_id, ap_id):
                  user_id=current_user.id)
     db.session.commit()
 
-    if ap.protocol == 'rdp':
-        ua = request.headers.get('User-Agent', '')
-        ext = 'bat' if 'Windows' in ua else 'sh'
-        fname = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.{ext}'
-        result = {
-            'protocol': 'rdp',
-            'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
-            'rdp_filename': fname,
-        }
-    else:
-        result = {
-            'protocol': 'ssh',
-            'command': ap.generate_ssh_command(),
-            'hostname': ap.hostname,
-            'port': ap.effective_port,
-            'username': ap.username,
-        }
-        if current_user.is_admin:
-            result['password'] = ap.password
+    result = {
+        'protocol': ap.protocol,
+        'console_url': url_for('console.session', ap_id=ap_id),
+    }
 
     if not has_booking and testbed_id:
         result['needs_booking'] = True
         result['testbed_id'] = testbed_id
     return jsonify(result)
-
-
-@bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file')
-@login_required
-def download_rdp_file(resource_id, ap_id):
-    """Download .rdp file with embedded credentials."""
-    ap = db.session.get(AccessPoint, ap_id) or abort(404)
-    resource = db.session.get(Resource, ap.resource_id) or abort(404)
-    if ap.protocol != 'rdp':
-        abort(404)
-    # Allow access from the AP's own resource or its parent resource
-    if ap.resource_id != resource_id and resource.parent_id != resource_id:
-        abort(404)
-    # If password is available, generate a platform-specific launcher
-    # that auto-connects with credentials (base64-obfuscated)
-    if ap.password:
-        ua = request.headers.get('User-Agent', '')
-        if 'Windows' in ua:
-            content = ap.generate_rdp_launcher_bat()
-            filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.bat'
-        else:
-            content = ap.generate_rdp_launcher_sh()
-            filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.sh'
-        return Response(
-            content,
-            mimetype='application/octet-stream',
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-        )
-    rdp_content = ap.generate_rdp_file()
-    filename = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}.rdp'
-    return Response(
-        rdp_content,
-        mimetype='application/x-rdp',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-    )
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/force-connect', methods=['POST'])
@@ -898,26 +848,10 @@ def force_connect_access_point(resource_id, ap_id):
                      user_id=current_user.id)
     db.session.commit()
 
-    if ap.protocol == 'rdp':
-        ua = request.headers.get('User-Agent', '')
-        ext = 'bat' if 'Windows' in ua else 'sh'
-        fname = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.{ext}'
-        return jsonify({
-            'protocol': 'rdp',
-            'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
-            'rdp_filename': fname,
-        })
-    else:
-        result = {
-            'protocol': 'ssh',
-            'command': ap.generate_ssh_command(),
-            'hostname': ap.hostname,
-            'port': ap.effective_port,
-            'username': ap.username,
-        }
-        if current_user.is_admin:
-            result['password'] = ap.password
-        return jsonify(result)
+    return jsonify({
+        'protocol': ap.protocol,
+        'console_url': url_for('console.session', ap_id=ap_id),
+    })
 
 
 @bp.route('/<int:resource_id>/quick-book', methods=['POST'])

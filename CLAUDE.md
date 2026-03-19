@@ -6,6 +6,7 @@ Flask-based lab resource management system with booking, ICMP monitoring, and ca
 
 ```bash
 pip install -r requirements.txt
+docker compose up -d   # Starts guacd (Guacamole proxy for in-browser RDP/SSH)
 flask init-db          # Creates SQLite DB + default admin (admin/admin)
 python run.py          # Starts dev server on :5000
 ```
@@ -22,6 +23,7 @@ app/
   auth/                # Login, registration, LDAP auth
   resources/           # Resource CRUD, host management (multi-IP support)
   bookings/            # Booking CRUD, calendar view, conflict detection
+  console/             # In-browser RDP/SSH via Guacamole (guacd + WebSocket tunnel)
   monitoring/          # ICMP ping service, dashboard, status badges
   network/             # VLAN/subnet management, network overview, auto-linking
   admin/               # Admin panel, SMTP settings, branding

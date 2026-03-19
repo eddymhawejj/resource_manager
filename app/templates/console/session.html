@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ ap.protocol|upper }} — {{ resource.name }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/guacamole-common-js@1.5.0/dist/guacamole-common.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+
+    #display {
+      width: 100%; height: 100%;
+      position: absolute; top: 0; left: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* Toolbar */
+    #toolbar {
+      position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+      z-index: 1000; padding: 6px 16px;
+      background: rgba(26, 26, 46, 0.92); backdrop-filter: blur(8px);
+      border-radius: 0 0 10px 10px;
+      display: flex; align-items: center; gap: 10px;
+      opacity: 0.3; transition: opacity 0.2s;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    #toolbar:hover { opacity: 1; }
+    #toolbar .badge { font-size: 0.7rem; }
+    #toolbar .btn { padding: 2px 8px; font-size: 0.8rem; }
+    #toolbar .resource-name { color: #ccc; font-size: 0.85rem; font-weight: 500; white-space: nowrap; }
+    #toolbar .separator { width: 1px; height: 20px; background: rgba(255,255,255,0.2); }
+
+    /* Overlay for disconnected state */
+    #overlay {
+      display: none; position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%; z-index: 2000;
+      background: rgba(26, 26, 46, 0.95);
+      align-items: center; justify-content: center;
+      flex-direction: column; color: #ccc;
+    }
+    #overlay.active { display: flex; }
+    #overlay h4 { color: #fff; margin-bottom: 8px; }
+    #overlay p { margin-bottom: 16px; font-size: 0.9rem; }
+    #overlay .btn { font-size: 0.85rem; }
+
+    /* Status indicator */
+    .status-indicator {
+      width: 8px; height: 8px; border-radius: 50%;
+      display: inline-block; margin-right: 4px;
+    }
+    .status-indicator.connected { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+    .status-indicator.connecting { background: #fbbf24; animation: pulse 1s infinite; }
+    .status-indicator.disconnected { background: #f87171; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <span class="status-indicator connecting" id="statusDot"></span>
+    <span class="resource-name">{{ resource.name }}</span>
+    <span class="badge bg-{{ 'primary' if ap.protocol == 'rdp' else 'dark' }}">{{ ap.protocol|upper }}</span>
+    <div class="separator"></div>
+    {% if ap.protocol == 'rdp' %}
+    <button class="btn btn-outline-light btn-sm" onclick="sendCtrlAltDel()" title="Ctrl+Alt+Del">
+      <i class="bi bi-keyboard me-1"></i>C-A-D
+    </button>
+    {% endif %}
+    <button class="btn btn-outline-light btn-sm" onclick="toggleClipboard()" title="Clipboard sync">
+      <i class="bi bi-clipboard"></i>
+    </button>
+    <button class="btn btn-outline-light btn-sm" onclick="toggleFullscreen()" title="Fullscreen">
+      <i class="bi bi-fullscreen" id="fsIcon"></i>
+    </button>
+    <button class="btn btn-outline-danger btn-sm" onclick="disconnect()" title="Disconnect">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <!-- Clipboard panel (hidden by default) -->
+  <div id="clipboardPanel" class="position-fixed p-3" style="display:none; top:40px; right:16px; z-index:1001; width:320px; background:rgba(26,26,46,0.95); border-radius:8px; backdrop-filter:blur(8px); box-shadow:0 2px 12px rgba(0,0,0,0.3);">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <small class="text-light fw-medium">Remote Clipboard</small>
+      <button class="btn btn-sm btn-outline-light py-0 px-1" onclick="toggleClipboard()"><i class="bi bi-x"></i></button>
+    </div>
+    <textarea id="clipboardText" class="form-control form-control-sm font-monospace" rows="4" style="font-size:0.8rem;" placeholder="Paste text here to send to remote, or copy from remote..."></textarea>
+  </div>
+
+  <!-- Display -->
+  <div id="display"></div>
+
+  <!-- Disconnect overlay -->
+  <div id="overlay">
+    <i class="bi bi-display" style="font-size:3rem; color:#666; margin-bottom:16px;"></i>
+    <h4 id="overlayTitle">Disconnected</h4>
+    <p id="overlayMsg">The remote session has ended.</p>
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary btn-sm" onclick="reconnect()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Reconnect
+      </button>
+      <a href="{{ url_for('resources.detail', resource_id=resource.id) }}" class="btn btn-outline-light btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Back to resource
+      </a>
+    </div>
+  </div>
+
+<script>
+(function() {
+  var TUNNEL_PATH = '{{ tunnel_path }}';
+  var PROTOCOL = '{{ ap.protocol }}';
+  var displayEl = document.getElementById('display');
+  var overlay = document.getElementById('overlay');
+  var statusDot = document.getElementById('statusDot');
+  var clipboardPanel = document.getElementById('clipboardPanel');
+  var clipboardText = document.getElementById('clipboardText');
+  var client = null;
+  var keyboard = null;
+  var mouse = null;
+
+  function buildWsUrl(path) {
+    var loc = window.location;
+    var scheme = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    return scheme + '//' + loc.host + path;
+  }
+
+  function connect() {
+    statusDot.className = 'status-indicator connecting';
+    overlay.classList.remove('active');
+
+    var tunnel = new Guacamole.WebSocketTunnel(buildWsUrl(TUNNEL_PATH));
+    client = new Guacamole.Client(tunnel);
+
+    // Attach display
+    displayEl.innerHTML = '';
+    displayEl.appendChild(client.getDisplay().getElement());
+
+    // State change handler
+    client.onstatechange = function(state) {
+      switch (state) {
+        case 1: // CONNECTING
+          statusDot.className = 'status-indicator connecting';
+          break;
+        case 3: // CONNECTED
+          statusDot.className = 'status-indicator connected';
+          fitDisplay();
+          break;
+        case 5: // DISCONNECTED
+          statusDot.className = 'status-indicator disconnected';
+          showOverlay('Disconnected', 'The remote session has ended.');
+          break;
+      }
+    };
+
+    // Error handler
+    client.onerror = function(status) {
+      var msg = 'Connection error';
+      if (status && status.message) msg = status.message;
+      else if (status && status.code) msg = 'Error code: ' + status.code;
+      statusDot.className = 'status-indicator disconnected';
+      showOverlay('Connection Error', msg);
+    };
+
+    // Clipboard from remote
+    client.onclipboard = function(stream, mimetype) {
+      if (mimetype !== 'text/plain') return;
+      var reader = new Guacamole.StringReader(stream);
+      var data = '';
+      reader.ontext = function(text) { data += text; };
+      reader.onend = function() {
+        clipboardText.value = data;
+        // Also try to set browser clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(data).catch(function(){});
+        }
+      };
+    };
+
+    // Keyboard
+    keyboard = new Guacamole.Keyboard(document);
+    keyboard.onkeydown = function(keysym) { client.sendKeyEvent(1, keysym); };
+    keyboard.onkeyup = function(keysym) { client.sendKeyEvent(0, keysym); };
+
+    // Mouse
+    mouse = new Guacamole.Mouse(client.getDisplay().getElement());
+    mouse.onEach(['mousedown', 'mouseup', 'mousemove'], function(e) {
+      // Scale mouse coordinates if display is scaled
+      var display = client.getDisplay();
+      var scale = display.getScale();
+      var state = e.state;
+      client.sendMouseState(
+        Object.assign({}, state, {
+          x: state.x / scale,
+          y: state.y / scale
+        })
+      );
+    });
+
+    // Touch for mobile
+    var touch = new Guacamole.Mouse.Touchpad(client.getDisplay().getElement());
+    touch.onEach(['mousedown', 'mouseup', 'mousemove'], function(e) {
+      var display = client.getDisplay();
+      var scale = display.getScale();
+      var state = e.state;
+      client.sendMouseState(
+        Object.assign({}, state, {
+          x: state.x / scale,
+          y: state.y / scale
+        })
+      );
+    });
+
+    client.connect('');
+  }
+
+  function fitDisplay() {
+    if (!client) return;
+    var display = client.getDisplay();
+    var w = window.innerWidth;
+    var h = window.innerHeight;
+    var dw = display.getWidth();
+    var dh = display.getHeight();
+    if (dw > 0 && dh > 0) {
+      var scale = Math.min(w / dw, h / dh);
+      display.scale(scale);
+    }
+  }
+
+  function showOverlay(title, msg) {
+    document.getElementById('overlayTitle').textContent = title;
+    document.getElementById('overlayMsg').textContent = msg;
+    overlay.classList.add('active');
+  }
+
+  // Public API
+  window.disconnect = function() {
+    if (client) {
+      client.disconnect();
+    }
+  };
+
+  window.reconnect = function() {
+    if (client) {
+      try { client.disconnect(); } catch(e) {}
+    }
+    connect();
+  };
+
+  window.sendCtrlAltDel = function() {
+    if (!client) return;
+    // Key codes for Ctrl+Alt+Del
+    client.sendKeyEvent(1, 0xFFE3); // Ctrl
+    client.sendKeyEvent(1, 0xFFE9); // Alt
+    client.sendKeyEvent(1, 0xFFFF); // Delete
+    client.sendKeyEvent(0, 0xFFFF);
+    client.sendKeyEvent(0, 0xFFE9);
+    client.sendKeyEvent(0, 0xFFE3);
+  };
+
+  window.toggleClipboard = function() {
+    if (clipboardPanel.style.display === 'none') {
+      clipboardPanel.style.display = 'block';
+      clipboardText.focus();
+    } else {
+      clipboardPanel.style.display = 'none';
+    }
+  };
+
+  window.toggleFullscreen = function() {
+    var icon = document.getElementById('fsIcon');
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(function() {
+        icon.className = 'bi bi-fullscreen-exit';
+      }).catch(function(){});
+    } else {
+      document.exitFullscreen().then(function() {
+        icon.className = 'bi bi-fullscreen';
+      }).catch(function(){});
+    }
+  };
+
+  // Send clipboard text to remote when user types in clipboard panel
+  clipboardText.addEventListener('input', function() {
+    if (!client) return;
+    var stream = client.createClipboardStream('text/plain');
+    var writer = new Guacamole.StringWriter(stream);
+    writer.sendText(clipboardText.value);
+    writer.sendEnd();
+  });
+
+  // Resize
+  window.addEventListener('resize', fitDisplay);
+
+  // Clean disconnect on close
+  window.addEventListener('beforeunload', function() {
+    if (client) {
+      try { client.disconnect(); } catch(e) {}
+    }
+  });
+
+  // Prevent keyboard events from bubbling when not in clipboard panel
+  document.addEventListener('keydown', function(e) {
+    if (e.target === clipboardText) return;
+    // Don't prevent F11 for native fullscreen
+    if (e.key === 'F11') return;
+  });
+
+  // Start connection
+  connect();
+})();
+</script>
+
+</body>
+</html>

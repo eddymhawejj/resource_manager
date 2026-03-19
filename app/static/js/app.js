@@ -324,27 +324,9 @@ function exportTableToCSV(tableEl, filename) {
 
 // ===== Access Point Connect =====
 function _handleConnectResponse(data, csrfToken) {
-  if (data.protocol === 'rdp') {
-    // Auto-download launcher via hidden <a download> click
-    var a = document.createElement('a');
-    a.href = data.rdp_download;
-    a.download = data.rdp_filename || '';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } else {
-    // SSH: show modal with command (password only visible to admins)
-    document.getElementById('ssh-command').value = data.command || '';
-    var pwRow = document.getElementById('ssh-password-row');
-    if (data.password) {
-      document.getElementById('ssh-password').value = data.password;
-      document.getElementById('ssh-password').type = 'password';
-      if (pwRow) pwRow.classList.remove('d-none');
-    } else {
-      document.getElementById('ssh-password').value = '';
-      if (pwRow) pwRow.classList.add('d-none');
-    }
-    new bootstrap.Modal(document.getElementById('sshModal')).show();
+  // Open in-browser console in a new tab
+  if (data.console_url) {
+    window.open(data.console_url, '_blank');
   }
 
   // If user has no booking, offer to quick-book
@@ -431,17 +413,6 @@ function submitQuickBook() {
   .catch(function (err) {
     showToast('Failed to book: ' + err, 'danger');
   });
-}
-
-function togglePasswordVisibility(fieldId, btn) {
-  var field = document.getElementById(fieldId);
-  if (field.type === 'password') {
-    field.type = 'text';
-    btn.innerHTML = '<i class="bi bi-eye-slash"></i>';
-  } else {
-    field.type = 'password';
-    btn.innerHTML = '<i class="bi bi-eye"></i>';
-  }
 }
 
 function showToast(message, category, delay, isHtml) {

@@ -55,6 +55,13 @@ def create_app(config_class=Config):
     from app.admin import bp as admin_bp
     app.register_blueprint(admin_bp)
 
+    from app.console import bp as console_bp
+    app.register_blueprint(console_bp)
+
+    # Init flask-sock for WebSocket support (Guacamole tunnel)
+    from app.console.routes import init_sock
+    init_sock(app)
+
     # Error handlers
     @app.errorhandler(404)
     def not_found(e):

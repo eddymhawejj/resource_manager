@@ -29,6 +29,10 @@ class Config:
     LDAP_BIND_DN = os.environ.get('LDAP_BIND_DN', '')
     LDAP_BIND_PASSWORD = os.environ.get('LDAP_BIND_PASSWORD', '')
 
+    # Guacamole (guacd)
+    GUACD_HOST = os.environ.get('GUACD_HOST', 'localhost')
+    GUACD_PORT = int(os.environ.get('GUACD_PORT', 4822))
+
     # Monitoring
     PING_INTERVAL_SECONDS = int(os.environ.get('PING_INTERVAL_SECONDS', 60))
     PING_TIMEOUT_SECONDS = int(os.environ.get('PING_TIMEOUT_SECONDS', 2))
