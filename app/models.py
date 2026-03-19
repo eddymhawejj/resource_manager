@@ -651,12 +651,19 @@ class AccessPoint(db.Model):
             f"cmdkey /generic:\\\"{termsrv}\\\" /user:\\\"{self.username}\\\" /pass:$p"
             f'"'
         )
+        # Use PowerShell to: store creds, launch mstsc, wait briefly, clean up
+        # all in a single hidden PowerShell process so no cmd window lingers
+        ps_script = (
+            f"$p=[System.Text.Encoding]::UTF8.GetString("
+            f"[System.Convert]::FromBase64String('{pw_b64}'));"
+            f" cmdkey /generic:\\\"{termsrv}\\\" /user:\\\"{self.username}\\\" /pass:$p;"
+            f" Start-Process mstsc -ArgumentList '/v:{address}';"
+            f" Start-Sleep -Seconds 5;"
+            f" cmdkey /delete:\\\"{termsrv}\\\""
+        )
         lines = [
             '@echo off',
-            ps_store,
-            f'mstsc /v:"{address}"',
-            'timeout /t 5 /nobreak >nul',
-            f'cmdkey /delete:"{termsrv}"',
+            f'start /b powershell -NoProfile -WindowStyle Hidden -Command "{ps_script}"',
         ]
         return '\r\n'.join(lines) + '\r\n'
 
