@@ -201,6 +201,39 @@
     </div>
   </div>
 
+  <!-- Quick Book Modal -->
+  <div class="modal fade" id="quickBookModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Book this testbed?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-3">You connected without a booking. Would you like to book this testbed?</p>
+          <div class="mb-3">
+            <label class="form-label small text-muted">Duration</label>
+            <select id="quick-book-duration" class="form-select form-select-sm">
+              <option value="1">1 hour</option>
+              <option value="2">2 hours</option>
+              <option value="4" selected>4 hours</option>
+              <option value="8">8 hours (full day)</option>
+              <option value="24">24 hours</option>
+              <option value="168">1 week</option>
+            </select>
+          </div>
+          <input type="hidden" id="quick-book-testbed-id">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">No thanks</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="submitQuickBook()">
+            <i class="bi bi-calendar-check me-1"></i>Book now
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Back to Top Button -->
   <button class="btn btn-primary back-to-top" id="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Back to top">
     <i class="bi bi-chevron-up"></i>

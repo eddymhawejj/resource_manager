@@ -346,6 +346,14 @@ function _handleConnectResponse(data, csrfToken) {
     }
     new bootstrap.Modal(document.getElementById('sshModal')).show();
   }
+
+  // If user has no booking, offer to quick-book
+  if (data.needs_booking && data.testbed_id) {
+    document.getElementById('quick-book-testbed-id').value = data.testbed_id;
+    setTimeout(function () {
+      new bootstrap.Modal(document.getElementById('quickBookModal')).show();
+    }, 500);
+  }
 }
 
 function connectAccess(resourceId, apId, protocol) {
@@ -363,8 +371,8 @@ function connectAccess(resourceId, apId, protocol) {
   });
 }
 
-function forceConnect(resourceId, apId, protocol, currentUserName) {
-  if (!confirm('This will disconnect ' + currentUserName + ' and notify them by email. Continue?')) {
+function forceConnect(resourceId, apId, protocol, bookerName) {
+  if (!confirm('Are you sure you want to take over this session?\n\n' + bookerName + ' currently has this testbed booked and will be notified by email.')) {
     return;
   }
   var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
@@ -386,6 +394,33 @@ function copyToClipboard(text, btn) {
     var origIcon = btn.innerHTML;
     btn.innerHTML = '<i class="bi bi-check"></i>';
     setTimeout(function () { btn.innerHTML = origIcon; }, 1500);
+  });
+}
+
+function submitQuickBook() {
+  var testbedId = document.getElementById('quick-book-testbed-id').value;
+  var hours = document.getElementById('quick-book-duration').value;
+  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value ||
+                  document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  fetch('/resources/' + testbedId + '/quick-book', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hours: parseInt(hours) })
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    var modal = bootstrap.Modal.getInstance(document.getElementById('quickBookModal'));
+    if (modal) modal.hide();
+    if (data.success) {
+      showToast('Booked for ' + hours + ' hour(s).', 'success');
+      setTimeout(function () { location.reload(); }, 1000);
+    } else {
+      showToast(data.error || 'Failed to book.', 'danger');
+    }
+  })
+  .catch(function (err) {
+    showToast('Failed to book: ' + err, 'danger');
   });
 }
 

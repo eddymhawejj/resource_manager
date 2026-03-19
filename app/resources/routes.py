@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from flask import render_template, redirect, url_for, flash, abort, request, Response, jsonify
 from flask_login import login_required, current_user
@@ -173,6 +173,11 @@ def detail(resource_id):
         has_active_booking = Booking.user_has_active_booking(current_user.id, testbed_id)
     can_access = current_user.is_admin or has_active_booking
 
+    # Find who currently has it booked (for force-connect button)
+    active_booker = _get_active_booker(resource)
+    if active_booker and active_booker.id == current_user.id:
+        active_booker = None  # Don't show force-connect for your own booking
+
     # For device-type resources: list testbeds to promote into
     available_testbeds = []
     if resource.resource_type == 'device' and current_user.is_admin:
@@ -194,6 +199,7 @@ def detail(resource_id):
                            all_access_points_admin=all_access_points_admin,
                            has_active_booking=has_active_booking,
                            can_access=can_access,
+                           active_booker=active_booker,
                            available_testbeds=available_testbeds)
 
 
@@ -644,6 +650,24 @@ def _can_access_check(resource):
     return Booking.user_has_active_booking(current_user.id, testbed_id)
 
 
+def _get_active_booker(resource):
+    """Return the User who currently has an active booking for this resource, or None."""
+    testbed_id = _find_testbed_for_resource(resource)
+    if not testbed_id:
+        return None
+    now = datetime.now(timezone.utc)
+    booking = Booking.query.filter(
+        Booking.resource_id == testbed_id,
+        Booking.status == 'confirmed',
+        Booking.start_time <= now,
+        Booking.end_time >= now,
+    ).first()
+    if booking:
+        from app.models import User
+        return db.session.get(User, booking.user_id)
+    return None
+
+
 @bp.route('/<int:resource_id>/access-points/add', methods=['POST'])
 @login_required
 @admin_required
@@ -753,9 +777,9 @@ def connect_access_point(resource_id, ap_id):
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
 
-    if not _can_access_check(resource):
-        flash('You need an active booking to connect. Book this testbed first.', 'warning')
-        return redirect(url_for('resources.detail', resource_id=resource_id))
+    # Check booking status (for quick-book prompt), but allow connect regardless
+    has_booking = _can_access_check(resource)
+    testbed_id = _find_testbed_for_resource(resource)
 
     # Update tracking
     ap.last_accessed_by = current_user.id
@@ -769,13 +793,12 @@ def connect_access_point(resource_id, ap_id):
         ua = request.headers.get('User-Agent', '')
         ext = 'bat' if 'Windows' in ua else 'sh'
         fname = f'{ap.hostname.replace(".", "_")}_{ap.effective_port}_connect.{ext}'
-        return jsonify({
+        result = {
             'protocol': 'rdp',
             'rdp_download': url_for('resources.download_rdp_file', resource_id=resource_id, ap_id=ap_id),
             'rdp_filename': fname,
-        })
+        }
     else:
-        # SSH: return command, password only for admins
         result = {
             'protocol': 'ssh',
             'command': ap.generate_ssh_command(),
@@ -785,7 +808,11 @@ def connect_access_point(resource_id, ap_id):
         }
         if current_user.is_admin:
             result['password'] = ap.password
-        return jsonify(result)
+
+    if not has_booking and testbed_id:
+        result['needs_booking'] = True
+        result['testbed_id'] = testbed_id
+    return jsonify(result)
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/rdp-file')
@@ -799,8 +826,6 @@ def download_rdp_file(resource_id, ap_id):
     # Allow access from the AP's own resource or its parent resource
     if ap.resource_id != resource_id and resource.parent_id != resource_id:
         abort(404)
-    if not _can_access_check(resource):
-        abort(403)
     # If password is available, generate a platform-specific launcher
     # that auto-connects with credentials (base64-obfuscated)
     if ap.password:
@@ -831,25 +856,20 @@ def force_connect_access_point(resource_id, ap_id):
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
 
-    if not _can_access_check(resource):
-        flash('You need an active booking to connect.', 'warning')
-        return redirect(url_for('resources.detail', resource_id=resource_id))
-
-    # Notify displaced user
-    displaced_user = None
-    if ap.last_accessed_by and ap.last_accessed_by != current_user.id:
-        from app.models import User
-        displaced_user = db.session.get(User, ap.last_accessed_by)
-        if displaced_user:
-            try:
-                from app.email_service import send_force_disconnect_notification
-                send_force_disconnect_notification(displaced_user, ap, current_user)
-            except Exception:
-                pass
-            AuditLog.log('access.force_connect', 'access_point', ap_id,
-                         {'resource_id': resource_id, 'displaced_user_id': displaced_user.id,
-                          'displaced_user': displaced_user.display_name},
-                         user_id=current_user.id)
+    # Notify the user who currently has this resource booked
+    displaced_user = _get_active_booker(resource)
+    if displaced_user and displaced_user.id != current_user.id:
+        try:
+            from app.email_service import send_force_disconnect_notification
+            send_force_disconnect_notification(displaced_user, ap, current_user)
+        except Exception:
+            pass
+        AuditLog.log('access.force_connect', 'access_point', ap_id,
+                     {'resource_id': resource_id, 'displaced_user_id': displaced_user.id,
+                      'displaced_user': displaced_user.display_name},
+                     user_id=current_user.id)
+    else:
+        displaced_user = None
 
     # Update tracking
     ap.last_accessed_by = current_user.id
@@ -880,6 +900,53 @@ def force_connect_access_point(resource_id, ap_id):
         if current_user.is_admin:
             result['password'] = ap.password
         return jsonify(result)
+
+
+@bp.route('/<int:resource_id>/quick-book', methods=['POST'])
+@login_required
+def quick_book(resource_id):
+    """Create a quick booking starting now for the given duration."""
+    resource = db.session.get(Resource, resource_id) or abort(404)
+    data = request.get_json(silent=True) or {}
+    hours = data.get('hours', 4)
+    if not isinstance(hours, int) or hours < 1 or hours > 168:
+        return jsonify({'success': False, 'error': 'Invalid duration.'}), 400
+
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(hours=hours)
+
+    booking = Booking(
+        resource_id=resource_id,
+        user_id=current_user.id,
+        title=f'Quick booking - {resource.name}',
+        start_time=now,
+        end_time=end,
+        status='confirmed',
+    )
+
+    if booking.has_conflict():
+        return jsonify({'success': False, 'error': 'Time slot conflicts with an existing booking.'}), 409
+
+    if MaintenanceWindow.resource_in_maintenance(resource_id):
+        return jsonify({'success': False, 'error': 'Resource is in maintenance.'}), 409
+
+    db.session.add(booking)
+    AuditLog.log('booking.create', 'booking', None, {
+        'title': booking.title,
+        'resource_id': resource_id,
+        'start': now.isoformat(),
+        'end': end.isoformat(),
+        'quick_book': True,
+    }, user_id=current_user.id)
+    db.session.commit()
+
+    try:
+        from app.email_service import send_booking_confirmation
+        send_booking_confirmation(booking)
+    except Exception:
+        pass
+
+    return jsonify({'success': True, 'booking_id': booking.id})
 
 
 @bp.route('/<int:resource_id>/access-points/<int:ap_id>/password', methods=['POST'])

@@ -163,20 +163,14 @@
               <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %}">{{ ap.protocol|upper }}</span>
             </div>
             <div class="d-flex align-items-center gap-1 mt-2">
-              {% if can_access %}
-                {% if ap.last_accessed_by and ap.last_accessed_by != current_user.id and ap.last_user %}
-                <button class="btn btn-sm btn-warning ap-connect-btn" onclick="forceConnect({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}', '{{ ap.last_user.display_name|e }}')" title="Force connect (will notify {{ ap.last_user.display_name }})">
-                  <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Force Connect
-                </button>
-                {% else %}
-                <button class="btn btn-sm btn-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %} ap-connect-btn" onclick="connectAccess({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}')" title="Connect via {{ ap.protocol|upper }}">
-                  <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Connect
-                </button>
-                {% endif %}
+              {% if active_booker %}
+              <button class="btn btn-sm btn-warning ap-connect-btn" onclick="forceConnect({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}', '{{ active_booker.display_name|e }}')" title="Force connect (will notify {{ active_booker.display_name }})">
+                <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Force Connect
+              </button>
               {% else %}
-                <button class="btn btn-sm btn-secondary ap-connect-btn" disabled title="Book this testbed to unlock access">
-                  <i class="bi bi-lock me-1"></i>Book to connect
-                </button>
+              <button class="btn btn-sm btn-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %} ap-connect-btn" onclick="connectAccess({{ resource.id }}, {{ ap.id }}, '{{ ap.protocol }}')" title="Connect via {{ ap.protocol|upper }}">
+                <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Connect
+              </button>
               {% endif %}
             </div>
             {% if ap.last_user %}
