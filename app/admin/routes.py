@@ -286,12 +286,12 @@ def _get_drive_base():
 
 
 def _get_drive_usage():
-    """Get per-user drive usage stats."""
+    """Get per-resource drive usage stats."""
     base = os.path.realpath(_get_drive_base())
     if not os.path.isdir(base):
         return [], 0
 
-    users_by_id = {u.id: u for u in User.query.all()}
+    resources_by_id = {r.id: r for r in Resource.query.all()}
     usage = []
     total = 0
 
@@ -299,7 +299,7 @@ def _get_drive_usage():
         if not entry.is_dir():
             continue
         try:
-            user_id = int(entry.name)
+            resource_id = int(entry.name)
         except ValueError:
             continue
         dir_size = 0
@@ -311,10 +311,10 @@ def _get_drive_usage():
                     file_count += 1
                 except OSError:
                     pass
-        user = users_by_id.get(user_id)
+        resource = resources_by_id.get(resource_id)
         usage.append({
-            'user_id': user_id,
-            'username': user.username if user else f'(deleted user {user_id})',
+            'resource_id': resource_id,
+            'resource_name': resource.name if resource else f'(deleted resource {resource_id})',
             'file_count': file_count,
             'size': dir_size,
             'path': entry.path,
@@ -333,21 +333,20 @@ def drive_management():
     return render_template('admin/drive.html', usage=usage, total_size=total)
 
 
-@bp.route('/drive/<int:user_id>/clear', methods=['POST'])
+@bp.route('/drive/<int:resource_id>/clear', methods=['POST'])
 @login_required
 @admin_required
-def clear_user_drive(user_id):
-    """Clear all files from a specific user's drive directory."""
+def clear_resource_drive(resource_id):
+    """Clear all files from a specific resource's drive directory."""
     base = os.path.realpath(_get_drive_base())
-    user_dir = os.path.realpath(os.path.join(base, str(user_id)))
-    # Safety: ensure it's under the base drive path
-    if not user_dir.startswith(base + os.sep):
+    res_dir = os.path.realpath(os.path.join(base, str(resource_id)))
+    if not res_dir.startswith(base + os.sep):
         abort(403)
-    if os.path.isdir(user_dir):
-        shutil.rmtree(user_dir, ignore_errors=True)
-        os.makedirs(user_dir, mode=0o777, exist_ok=True)
-    user = db.session.get(User, user_id)
-    name = user.username if user else f'user {user_id}'
+    if os.path.isdir(res_dir):
+        shutil.rmtree(res_dir, ignore_errors=True)
+        os.makedirs(res_dir, mode=0o777, exist_ok=True)
+    resource = db.session.get(Resource, resource_id)
+    name = resource.name if resource else f'resource {resource_id}'
     flash(f'Drive cleared for {name}.', 'success')
     return redirect(url_for('admin.drive_management'))
 

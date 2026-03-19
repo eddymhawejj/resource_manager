@@ -568,7 +568,7 @@
     }
   };
 
-  var FILES_URL = '{{ url_for("console.list_files") }}';
+  var FILES_URL = '{{ url_for("console.list_files", resource_id=resource.id) }}';
 
   function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
@@ -614,8 +614,11 @@
   };
 
   window.deleteDriveFile = function(name) {
-    fetch(FILES_URL + '/' + encodeURIComponent(name), { method: 'DELETE' })
-      .then(function() { refreshDriveFiles(); });
+    if (!confirm('Delete "' + name + '"?')) return;
+    fetch(FILES_URL + '/' + encodeURIComponent(name), {
+      method: 'DELETE',
+      credentials: 'same-origin'
+    }).then(function() { refreshDriveFiles(); });
   };
 
   // Drag-and-drop

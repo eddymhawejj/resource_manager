@@ -562,5 +562,16 @@ def start_scheduler(app):
             replace_existing=True,
         )
 
+    # Purge drive files older than 7 days (runs daily)
+    from app.console.routes import purge_old_drive_files
+    scheduler.add_job(
+        func=purge_old_drive_files,
+        trigger='interval',
+        hours=24,
+        args=[app],
+        id='drive_file_purge',
+        replace_existing=True,
+    )
+
     scheduler.start()
     app.scheduler = scheduler

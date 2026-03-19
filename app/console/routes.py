@@ -3,10 +3,11 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 
 from flask import (
     current_app, render_template, abort, request, url_for,
-    jsonify, send_from_directory,
+    jsonify, send_from_directory, after_this_request, Response,
 )
 from flask_login import login_required, current_user
 from flask_sock import Sock
@@ -17,12 +18,14 @@ from app.console import bp
 
 sock = Sock()
 
+DRIVE_MAX_AGE_DAYS = 7
 
-def _user_drive_path():
-    """Return the absolute path to the current user's drive directory."""
+
+def _resource_drive_path(resource_id):
+    """Return the absolute path to a resource's drive directory."""
     base_drive = current_app.config.get('DRIVE_PATH', os.path.join(
         current_app.root_path, '..', 'data', 'drive'))
-    return os.path.realpath(os.path.join(base_drive, str(current_user.id)))
+    return os.path.realpath(os.path.join(base_drive, str(resource_id)))
 
 
 def _fix_drive_permissions(path):
@@ -31,32 +34,41 @@ def _fix_drive_permissions(path):
     Returns True if permissions were fixed or already OK, False on failure.
     """
     try:
-        subprocess.run(['chmod', '-R', 'a+rX', path], check=True,
+        subprocess.run(['chmod', '-R', 'a+rwX', path], check=True,
                        capture_output=True, timeout=10)
         return True
     except Exception:
         return False
 
 
-@bp.route('/files')
+def _check_resource_access(resource_id):
+    """Verify user has access to the resource. Returns Resource or aborts."""
+    resource = db.session.get(Resource, resource_id)
+    if not resource:
+        abort(404)
+    if not can_user_access(current_user, resource):
+        abort(403)
+    return resource
+
+
+@bp.route('/<int:resource_id>/files')
 @login_required
-def list_files():
-    """List files in the current user's drive directory."""
-    drive = _user_drive_path()
+def list_files(resource_id):
+    """List files in a resource's drive directory."""
+    _check_resource_access(resource_id)
+    drive = _resource_drive_path(resource_id)
     if not os.path.isdir(drive):
         return jsonify([])
     try:
         entries = os.listdir(drive)
     except PermissionError:
-        # Drive dir created by guacd (root) — fix permissions so Flask can read
         if _fix_drive_permissions(drive):
             try:
                 entries = os.listdir(drive)
             except Exception:
                 return jsonify({'error': 'Permission denied on drive directory.'}), 500
         else:
-            return jsonify({'error': 'Permission denied on drive directory. '
-                            'Run: sudo chmod -R a+rX ' + drive}), 500
+            return jsonify({'error': 'Permission denied on drive directory.'}), 500
     files = []
     for name in sorted(entries):
         path = os.path.join(drive, name)
@@ -71,39 +83,75 @@ def list_files():
     return jsonify(files)
 
 
-@bp.route('/files/<path:filename>')
+@bp.route('/<int:resource_id>/files/<path:filename>')
 @login_required
-def download_file(filename):
-    """Download a file from the current user's drive directory."""
-    drive = _user_drive_path()
-    # Prevent path traversal
+def download_file(resource_id, filename):
+    """Download a file from a resource's drive directory, then delete it."""
+    _check_resource_access(resource_id)
+    drive = _resource_drive_path(resource_id)
     safe = os.path.realpath(os.path.join(drive, filename))
     if not safe.startswith(drive + os.sep) and safe != drive:
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
-    # Fix permissions if file is not readable (created by guacd as root)
     if not os.access(safe, os.R_OK):
         _fix_drive_permissions(drive)
+
+    # Auto-delete file after it has been sent to the client
+    file_to_delete = safe
+
+    @after_this_request
+    def _cleanup(response: Response) -> Response:
+        try:
+            os.remove(file_to_delete)
+        except OSError:
+            pass
+        return response
+
     return send_from_directory(drive, filename, as_attachment=True)
 
 
-@bp.route('/files/<path:filename>', methods=['DELETE'])
+@bp.route('/<int:resource_id>/files/<path:filename>', methods=['DELETE'])
 @csrf.exempt
 @login_required
-def delete_file(filename):
-    """Delete a file from the current user's drive directory."""
-    drive = _user_drive_path()
+def delete_file(resource_id, filename):
+    """Delete a file from a resource's drive directory."""
+    _check_resource_access(resource_id)
+    drive = _resource_drive_path(resource_id)
     safe = os.path.realpath(os.path.join(drive, filename))
     if not safe.startswith(drive + os.sep) and safe != drive:
         abort(403)
     if not os.path.isfile(safe):
         abort(404)
-    # Fix permissions if needed (file created by guacd as root)
     if not os.access(safe, os.W_OK):
         _fix_drive_permissions(drive)
     os.remove(safe)
     return '', 204
+
+
+def purge_old_drive_files(app):
+    """Delete drive files older than DRIVE_MAX_AGE_DAYS. Called by scheduler."""
+    with app.app_context():
+        base = os.path.realpath(app.config.get('DRIVE_PATH', os.path.join(
+            app.root_path, '..', 'data', 'drive')))
+        if not os.path.isdir(base):
+            return
+        cutoff = time.time() - (DRIVE_MAX_AGE_DAYS * 86400)
+        removed = 0
+        for resource_dir in os.scandir(base):
+            if not resource_dir.is_dir():
+                continue
+            for dirpath, _dirs, files in os.walk(resource_dir.path):
+                for fname in files:
+                    fpath = os.path.join(dirpath, fname)
+                    try:
+                        if os.path.getmtime(fpath) < cutoff:
+                            os.remove(fpath)
+                            removed += 1
+                    except OSError:
+                        pass
+        if removed:
+            app.logger.info(f'Drive purge: removed {removed} files older than {DRIVE_MAX_AGE_DAYS} days')
 
 
 def init_sock(app):
@@ -291,12 +339,13 @@ def tunnel(ws, ap_id):
         'username': ap.username or '',
         'password': ap.password or '',
     }
-    # Pre-create user drive directory with correct permissions so Flask
+    # Pre-create resource drive directory with correct permissions so Flask
     # can read files later.  guacd maps ./data/drive → /drive inside the
-    # container, so the container path is /drive/<user_id>.
-    user_drive = f'/drive/{current_user.id}'
+    # container, so the container path is /drive/<resource_id>.
+    resource_id = resource.id
+    container_drive = f'/drive/{resource_id}'
     host_drive = os.path.join(
-        current_app.config.get('DRIVE_PATH', ''), str(current_user.id))
+        current_app.config.get('DRIVE_PATH', ''), str(resource_id))
     try:
         os.makedirs(host_drive, mode=0o777, exist_ok=True)
     except OSError:
@@ -308,7 +357,7 @@ def tunnel(ws, ap_id):
             'ignore-cert': 'true',
             'enable-font-smoothing': 'true',
             'enable-drive': 'true',
-            'drive-path': user_drive,
+            'drive-path': container_drive,
             'drive-name': 'Shared',
             'create-drive-path': 'true',
         })
@@ -318,7 +367,7 @@ def tunnel(ws, ap_id):
             'font-size': '14',
             'terminal-type': 'xterm-256color',
             'enable-sftp': 'true',
-            'sftp-root-directory': user_drive,
+            'sftp-root-directory': container_drive,
         })
 
     # Update access tracking
