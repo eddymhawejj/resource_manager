@@ -201,7 +201,7 @@ def tunnel(ws, ap_id):
     }
     if ap.protocol == 'rdp':
         connect_params.update({
-            'security': 'any',
+            'security': 'tls',
             'ignore-cert': 'true',
             'enable-font-smoothing': 'true',
         })
