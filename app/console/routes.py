@@ -19,6 +19,30 @@ def init_sock(app):
     sock.init_app(app)
 
 
+def _ws_close(ws, message=None):
+    """Close WebSocket and shut down the underlying socket.
+
+    After flask-sock's route handler returns, Werkzeug writes an HTTP 200
+    response on the same socket.  If the socket is still open, those bytes
+    corrupt the WebSocket stream and the browser reports
+    "Invalid frame header".  Shutting down the raw socket here forces
+    Werkzeug's write to fail with ConnectionError, which it handles
+    gracefully.
+    """
+    try:
+        ws.close(message=message)
+    except Exception:
+        pass
+    try:
+        ws.sock.shutdown(socket.SHUT_RDWR)
+    except Exception:
+        pass
+    try:
+        ws.sock.close()
+    except Exception:
+        pass
+
+
 @bp.route('/<int:ap_id>')
 @login_required
 def session(ap_id):
@@ -92,17 +116,17 @@ def tunnel(ws, ap_id):
     the correct protocol and credentials from the access point.
     """
     if not current_user.is_authenticated:
-        ws.close(message='Not authenticated')
+        _ws_close(ws, 'Not authenticated')
         return
 
     ap = db.session.get(AccessPoint, ap_id)
     if not ap or not ap.is_enabled:
-        ws.close(message='Access point not found')
+        _ws_close(ws, 'Access point not found')
         return
 
     resource = db.session.get(Resource, ap.resource_id)
     if not resource or not can_user_access(current_user, resource):
-        ws.close(message='Access denied')
+        _ws_close(ws, 'Access denied')
         return
 
     guacd_host = current_app.config.get('GUACD_HOST', 'localhost')
@@ -116,7 +140,7 @@ def tunnel(ws, ap_id):
     except Exception as e:
         current_app.logger.error(
             f'Cannot connect to guacd at {guacd_host}:{guacd_port}: {e}')
-        ws.close(message='Cannot reach guacd')
+        _ws_close(ws, 'Cannot reach guacd')
         return
 
     guacd_sock.setblocking(False)
@@ -211,7 +235,7 @@ def tunnel(ws, ap_id):
     except Exception as e:
         current_app.logger.error(f'guacd handshake failed for AP {ap_id}: {e}')
         guacd_sock.close()
-        ws.close(message='guacd handshake failed')
+        _ws_close(ws, 'guacd handshake failed')
         return
 
     # --- Phase 2: Relay loop. Single-threaded: poll guacd with select,
@@ -252,3 +276,4 @@ def tunnel(ws, ap_id):
             guacd_sock.close()
         except Exception:
             pass
+        _ws_close(ws)
