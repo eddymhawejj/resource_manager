@@ -325,8 +325,19 @@ function exportTableToCSV(tableEl, filename) {
 // ===== Access Point Connect =====
 function _handleConnectResponse(data, csrfToken) {
   if (data.protocol === 'rdp') {
-    // Download .rdp file (credentials are embedded, user doesn't need password)
-    window.location.href = data.rdp_download;
+    // Auto-download launcher without "Save As" dialog
+    fetch(data.rdp_download)
+      .then(function (r) { return r.blob(); })
+      .then(function (blob) {
+        var filename = data.rdp_download.split('/').pop() || 'connect';
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+      })
+      .catch(function () { window.location.href = data.rdp_download; });
   } else {
     // SSH: show modal with command (password only visible to admins)
     document.getElementById('ssh-command').value = data.command || '';
