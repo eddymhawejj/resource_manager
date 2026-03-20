@@ -10,7 +10,7 @@ services:
       - app_uploads:/app/app/static/uploads
     environment:
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
-      - DATABASE_URL=sqlite:///resource_manager.db
+      - DATABASE_URL=sqlite:////app/instance/resource_manager.db
       - GUACD_HOST=guacd
       - GUACD_PORT=4822
       - GUACLITE_URL=${GUACLITE_URL:-ws://localhost:8080}
