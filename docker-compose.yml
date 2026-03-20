@@ -1,11 +1,44 @@
 services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-5000}:5000"
+    volumes:
+      - ./data/drive:/app/data/drive
+      - app_db:/app/instance
+      - app_uploads:/app/app/static/uploads
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
+      - DATABASE_URL=sqlite:///resource_manager.db
+      - GUACD_HOST=guacd
+      - GUACD_PORT=4822
+      - GUACLITE_URL=${GUACLITE_URL:-ws://localhost:8080}
+      - GUACLITE_SECRET_KEY=${GUACLITE_SECRET_KEY:-4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON}
+      - DRIVE_PATH=/app/data/drive
+      - MAIL_SERVER=${MAIL_SERVER:-}
+      - MAIL_PORT=${MAIL_PORT:-587}
+      - MAIL_USE_TLS=${MAIL_USE_TLS:-true}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-}
+      - LDAP_ENABLED=${LDAP_ENABLED:-false}
+      - LDAP_URL=${LDAP_URL:-}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:-}
+      - LDAP_USER_DN=${LDAP_USER_DN:-}
+      - LDAP_BIND_DN=${LDAP_BIND_DN:-}
+      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD:-}
+      - PING_INTERVAL_SECONDS=${PING_INTERVAL_SECONDS:-60}
+      - PING_TIMEOUT_SECONDS=${PING_TIMEOUT_SECONDS:-2}
+    depends_on:
+      - guacd
+      - guacamole-lite
+
   guacd:
     image: guacamole/guacd:1.5.5
     restart: unless-stopped
     user: root
     entrypoint: ["/bin/sh", "-c", "umask 0000 && exec /opt/guacamole/sbin/guacd -b 0.0.0.0 -L info -f"]
-    ports:
-      - "4822:4822"
     volumes:
       - ./data/drive:/drive
       - guacd_record:/record
@@ -16,11 +49,12 @@ services:
     image: node:18-alpine
     restart: unless-stopped
     working_dir: /app
-    command: ["node", "server.js"]
+    command: ["sh", "-c", "npm install --production && node server.js"]
     ports:
       - "${GUACLITE_PORT:-8080}:8080"
     volumes:
       - ./guacamole-lite:/app
+      - guaclite_modules:/app/node_modules
     environment:
       - GUACLITE_PORT=8080
       - GUACD_HOST=guacd
@@ -31,3 +65,6 @@ services:
 
 volumes:
   guacd_record:
+  guaclite_modules:
+  app_db:
+  app_uploads:
