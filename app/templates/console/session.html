@@ -214,6 +214,8 @@
 <script>
 (function() {
   var TUNNEL_PATH = '{{ tunnel_path }}';
+  var GUACLITE_URL = '{{ guaclite_url }}';
+  var GUACLITE_TOKEN = '{{ guaclite_token }}';
   var PROTOCOL = '{{ ap.protocol }}';
   var displayEl = document.getElementById('display');
   var overlay = document.getElementById('overlay');
@@ -232,8 +234,15 @@
     statusDot.className = 'status-indicator connecting';
     overlay.classList.remove('active');
 
-    // Pass the bare path — Guacamole.WebSocketTunnel converts it to ws(s)://
-    var tunnel = new Guacamole.WebSocketTunnel(TUNNEL_PATH);
+    // Connect via guacamole-lite (native Node.js relay) for performance.
+    // Falls back to the Python relay if guacamole-lite URL is not configured.
+    var tunnel;
+    if (GUACLITE_URL && GUACLITE_TOKEN) {
+      var wsUrl = GUACLITE_URL + '/?token=' + encodeURIComponent(GUACLITE_TOKEN);
+      tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+    } else {
+      tunnel = new Guacamole.WebSocketTunnel(TUNNEL_PATH);
+    }
     client = new Guacamole.Client(tunnel);
 
     // Attach display
@@ -348,12 +357,15 @@
 
     // Send browser dimensions for remote resolution.
     // Cap DPR at 1 for RDP — requesting HiDPI resolution from Windows
-    // generates massive pixel data that chokes the WebSocket relay.
-    // CSS scaling via fitDisplay() keeps it sharp on HiDPI screens.
+    // generates massive pixel data over the relay.
     var dpr = (PROTOCOL === 'rdp') ? 1 : (window.devicePixelRatio || 1);
     var w = Math.round(window.innerWidth * dpr);
     var h = Math.round(window.innerHeight * dpr);
     var dpi = Math.round(96 * dpr);
+
+    // guacamole-lite reads width/height/dpi from query params on the
+    // WebSocket URL.  The Guacamole.Client.connect() data string is
+    // also sent as a handshake param for the Python fallback tunnel.
     client.connect('width=' + w + '&height=' + h + '&dpi=' + dpi);
   }
 

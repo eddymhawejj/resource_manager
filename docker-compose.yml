@@ -12,5 +12,22 @@ services:
     environment:
       - GUACD_LOG_LEVEL=info
 
+  guacamole-lite:
+    image: node:18-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server.js"]
+    ports:
+      - "${GUACLITE_PORT:-8080}:8080"
+    volumes:
+      - ./guacamole-lite:/app
+    environment:
+      - GUACLITE_PORT=8080
+      - GUACD_HOST=guacd
+      - GUACD_PORT=4822
+      - GUACLITE_SECRET_KEY=${GUACLITE_SECRET_KEY:-4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON}
+    depends_on:
+      - guacd
+
 volumes:
   guacd_record:

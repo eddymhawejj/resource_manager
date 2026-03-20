@@ -33,6 +33,11 @@ class Config:
     GUACD_HOST = os.environ.get('GUACD_HOST', 'localhost')
     GUACD_PORT = int(os.environ.get('GUACD_PORT', 4822))
 
+    # guacamole-lite (native WebSocket↔guacd relay)
+    GUACLITE_URL = os.environ.get('GUACLITE_URL', 'ws://localhost:8080')
+    GUACLITE_SECRET_KEY = os.environ.get('GUACLITE_SECRET_KEY',
+                                         '4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON')
+
     # flask-sock: accept the 'guacamole' WebSocket subprotocol
     SOCK_SERVER_OPTIONS = {'subprotocols': ['guacamole']}
 

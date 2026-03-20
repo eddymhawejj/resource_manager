@@ -233,13 +233,70 @@ def session(ap_id):
     if not can_user_access(current_user, resource):
         abort(403)
 
-    tunnel_url = url_for('console.tunnel', ap_id=ap_id)
+    # Pre-create drive directory
+    resource_id = resource.id
+    container_drive = f'/drive/{resource_id}'
+    _ensure_drive_dir(resource_id)
+
+    # Build guacamole-lite encrypted token
+    settings = {
+        'hostname': ap.hostname,
+        'port': str(ap.effective_port),
+        'username': ap.username or '',
+        'password': ap.password or '',
+    }
+
+    if ap.protocol == 'rdp':
+        settings.update({
+            'security': 'any',
+            'ignore-cert': 'true',
+            'enable-font-smoothing': 'true',
+            'color-depth': '16',
+            'enable-drive': 'true',
+            'drive-path': container_drive,
+            'drive-name': 'Shared',
+            'create-drive-path': 'true',
+            'disable-wallpaper': 'true',
+            'disable-theming': 'true',
+            'disable-full-window-drag': 'true',
+            'disable-menu-animations': 'true',
+            'disable-bitmap-caching': 'false',
+            'resize-method': 'display-update',
+        })
+    elif ap.protocol == 'ssh':
+        settings.update({
+            'color-scheme': 'gray-black',
+            'font-size': '14',
+            'terminal-type': 'xterm-256color',
+            'enable-sftp': 'true',
+            'sftp-root-directory': container_drive,
+        })
+
+    from app.console.token import encrypt_token
+    token_payload = {
+        'connection': {
+            'type': ap.protocol,
+            'settings': settings,
+        }
+    }
+    secret_key = current_app.config.get('GUACLITE_SECRET_KEY',
+                                        '4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON')
+    token = encrypt_token(token_payload, secret_key)
+    guaclite_url = current_app.config.get('GUACLITE_URL', 'ws://localhost:8080')
+
+    # Update access tracking
+    from datetime import datetime, timezone
+    ap.last_accessed_by = current_user.id
+    ap.last_accessed_at = datetime.now(timezone.utc)
+    db.session.commit()
 
     return render_template(
         'console/session.html',
         ap=ap,
         resource=resource,
-        tunnel_path=tunnel_url,
+        tunnel_path=url_for('console.tunnel', ap_id=ap_id),
+        guaclite_url=guaclite_url,
+        guaclite_token=token,
     )
 
 

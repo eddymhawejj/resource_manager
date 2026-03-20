@@ -12,3 +12,4 @@ app/static/uploads/*
 migrations/
 .venv/
 venv/
+node_modules/

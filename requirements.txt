@@ -13,3 +13,4 @@ urllib3==2.2.1
 pysnmp-lextudio==6.1.2
 pyguacamole==0.9
 flask-sock==0.7.0
+pycryptodome>=3.19
