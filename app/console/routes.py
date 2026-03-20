@@ -451,7 +451,7 @@ def tunnel(ws, ap_id):
             ('size', [client_width, client_height, client_dpi]),
             ('audio', ['audio/L16']),
             ('video', []),
-            ('image', []),
+            ('image', ['image/jpeg', 'image/png', 'image/webp']),
         ]:
             instr = _encode_instruction(instr_name, instr_args)
             log.debug(f'[tunnel:{ap_id}] -> guacd: {instr.strip()}')
@@ -505,23 +505,25 @@ def tunnel(ws, ap_id):
 
     guacd_sock.setblocking(True)
     guacd_sock.settimeout(None)
+    # Disable Nagle — send small Guacamole instructions immediately
+    guacd_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     done = threading.Event()
 
     def guacd_to_browser():
         """Forward guacd TCP data to browser WebSocket."""
-        buf = b''
+        buf = bytearray()
         try:
             while not done.is_set():
-                chunk = guacd_sock.recv(65536)
+                chunk = guacd_sock.recv(131072)
                 if not chunk:
                     log.info(f'[tunnel:{ap_id}] guacd disconnected')
                     break
-                buf += chunk
+                buf.extend(chunk)
                 # Only send complete instructions (up to last ';')
                 last_semi = buf.rfind(b';')
                 if last_semi >= 0:
-                    to_send = buf[:last_semi + 1]
-                    buf = buf[last_semi + 1:]
+                    to_send = bytes(buf[:last_semi + 1])
+                    del buf[:last_semi + 1]
                     ws.send(to_send.decode('utf-8', errors='replace'))
         except Exception as e:
             if not done.is_set():

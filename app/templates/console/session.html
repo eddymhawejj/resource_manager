@@ -346,8 +346,11 @@
       sendScaledMouseState(mouseState);
     };
 
-    // Send actual browser dimensions so guacd uses the right resolution
-    var dpr = window.devicePixelRatio || 1;
+    // Send browser dimensions for remote resolution.
+    // Cap DPR at 1 for RDP — requesting HiDPI resolution from Windows
+    // generates massive pixel data that chokes the WebSocket relay.
+    // CSS scaling via fitDisplay() keeps it sharp on HiDPI screens.
+    var dpr = (PROTOCOL === 'rdp') ? 1 : (window.devicePixelRatio || 1);
     var w = Math.round(window.innerWidth * dpr);
     var h = Math.round(window.innerHeight * dpr);
     var dpi = Math.round(96 * dpr);
@@ -371,7 +374,7 @@
 
   function requestRemoteResize() {
     if (!client) return;
-    var dpr = window.devicePixelRatio || 1;
+    var dpr = (PROTOCOL === 'rdp') ? 1 : (window.devicePixelRatio || 1);
     var w = Math.round(window.innerWidth * dpr);
     var h = Math.round(window.innerHeight * dpr);
     client.sendSize(w, h);
