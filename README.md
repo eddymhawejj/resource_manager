@@ -14,6 +14,7 @@ A web application for managing local testbed resources, monitoring their health 
 | Flask-Login | 0.6.3 | User session management |
 | Flask-WTF | 1.2.2 | Form handling and CSRF protection |
 | Flask-Mail | 0.10.0 | SMTP email delivery |
+| Flask-Sock | — | WebSocket support (Python relay fallback) |
 | APScheduler | 3.10.4 | Background job scheduling |
 | Werkzeug | 3.1.3 | WSGI utilities and password hashing |
 | python-dotenv | 1.0.1 | Environment variable loading |
@@ -27,9 +28,18 @@ A web application for managing local testbed resources, monitoring their health 
 | Bootstrap Icons | 1.11.3 | CDN | Icon library |
 | HTMX | 1.9.12 | CDN | Dynamic HTML updates without custom JS |
 | FullCalendar | 6.1.11 | CDN | Interactive booking calendar |
+| Guacamole Common JS | 1.5.5 | Bundled | Guacamole protocol client (display, keyboard, mouse) |
 | Inter | — | Google Fonts | UI typography |
 
 Templates are rendered server-side with Jinja2. Custom styling and a dark/light theme toggle are handled via CSS custom properties and vanilla JavaScript.
+
+### Console / Remote Access
+
+| Component | Purpose |
+|-----------|---------|
+| guacd | Apache Guacamole server-side proxy daemon (Docker) |
+| guacamole-lite | Node.js native WebSocket↔guacd relay (Docker, port 8080) |
+| Python relay | Flask-Sock WebSocket relay fallback (disabled by default) |
 
 ### Database
 
@@ -42,6 +52,7 @@ Templates are rendered server-side with Jinja2. Custom styling and a dark/light 
 - **Resource Management** — organize testbeds and child resources in a hierarchical structure
 - **ICMP Monitoring** — background ping checks with status badges and response time history
 - **Booking System** — calendar-based scheduling with overlap detection
+- **In-Browser Console** — RDP and SSH sessions via guacamole-lite + guacd with file transfer, clipboard sync, and fullscreen support
 - **Authentication** — local accounts with password hashing, optional LDAP integration
 - **Email Notifications** — booking confirmation and cancellation emails via SMTP
 - **Admin Panel** — user management, runtime SMTP/LDAP configuration, logo upload
@@ -53,8 +64,10 @@ Templates are rendered server-side with Jinja2. Custom styling and a dark/light 
 # Install dependencies
 pip install -r requirements.txt
 
+# Start guacd and guacamole-lite (required for in-browser console)
+docker compose up -d
+
 # Initialize the database and seed the admin user
-flask db upgrade
 flask init-db
 
 # Run the application
@@ -81,6 +94,11 @@ Copy `.env.example` to `.env` and adjust values as needed:
 | `PING_INTERVAL_SECONDS` | `60` | Monitoring ping interval |
 | `PING_TIMEOUT_SECONDS` | `2` | Ping timeout |
 | `PING_HISTORY_LIMIT` | `100` | Max ping records per resource |
+| `GUACLITE_URL` | `ws://localhost:8080` | guacamole-lite WebSocket URL |
+| `GUACLITE_SECRET_KEY` | `4BQXC6J...` | Shared secret for token encryption |
+| `GUAC_PYTHON_RELAY_ENABLED` | `false` | Enable Python WebSocket relay fallback |
+| `GUACD_HOST` | `localhost` | guacd daemon hostname |
+| `GUACD_PORT` | `4822` | guacd daemon port |
 
 SMTP and LDAP settings can also be configured at runtime from the admin settings page.
 
@@ -98,12 +116,15 @@ resource_manager/
 │   ├── models.py           # SQLAlchemy models
 │   ├── email_service.py    # SMTP email helper
 │   ├── auth/               # Authentication blueprint (local + LDAP)
-│   ├── resources/          # Resource CRUD blueprint
+│   ├── resources/          # Resource CRUD and access points blueprint
 │   ├── bookings/           # Booking and calendar blueprint
+│   ├── console/            # In-browser RDP/SSH (guacamole-lite + fallback relay)
 │   ├── monitoring/         # Ping service and status blueprint
+│   ├── network/            # VLAN/subnet management blueprint
 │   ├── admin/              # Admin panel blueprint
 │   ├── templates/          # Jinja2 HTML templates
 │   └── static/             # CSS, JS, uploads
+├── guacamole-lite/         # Node.js guacamole-lite relay (Docker)
 ├── migrations/             # Alembic migration scripts
 └── instance/               # SQLite database file
 ```
