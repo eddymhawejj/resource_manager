@@ -1,4 +1,5 @@
 import os
+import select
 import shutil
 import socket
 import subprocess
@@ -388,6 +389,7 @@ def tunnel(ws, ap_id):
             'security': 'any',
             'ignore-cert': 'true',
             'enable-font-smoothing': 'true',
+            'color-depth': '16',
             'enable-drive': 'true',
             'drive-path': container_drive,
             'drive-name': 'Shared',
@@ -503,23 +505,52 @@ def tunnel(ws, ap_id):
     # When either side disconnects, the thread exits and signals the
     # other via shutdown().
 
-    guacd_sock.setblocking(True)
-    guacd_sock.settimeout(None)
     # Disable Nagle — send small Guacamole instructions immediately
     guacd_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    # Enlarge OS socket buffers for bursty RDP traffic (512 KB each)
+    for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+        try:
+            guacd_sock.setsockopt(socket.SOL_SOCKET, opt, 524288)
+        except OSError:
+            pass
+    guacd_sock.setblocking(False)
     done = threading.Event()
 
     def guacd_to_browser():
-        """Forward guacd TCP data to browser WebSocket."""
+        """Forward guacd TCP data to browser WebSocket.
+
+        Uses select() + non-blocking recv to drain all available data
+        from guacd before sending a single WebSocket frame.  This is
+        critical for Windows RDP which sends many small drawing
+        instructions in bursts — without draining, each recv() produces
+        a separate WebSocket frame with Python + framing overhead.
+        """
         buf = bytearray()
         try:
             while not done.is_set():
-                chunk = guacd_sock.recv(131072)
-                if not chunk:
-                    log.info(f'[tunnel:{ap_id}] guacd disconnected')
-                    break
-                buf.extend(chunk)
-                # Only send complete instructions (up to last ';')
+                # Block until at least some data is available
+                ready, _, _ = select.select([guacd_sock], [], [], 1.0)
+                if not ready:
+                    continue
+
+                # Drain all available data from the kernel buffer
+                while True:
+                    try:
+                        chunk = guacd_sock.recv(262144)
+                    except (BlockingIOError, OSError):
+                        break
+                    if not chunk:
+                        # guacd closed the connection
+                        if buf:
+                            last_semi = buf.rfind(b';')
+                            if last_semi >= 0:
+                                ws.send(bytes(buf[:last_semi + 1])
+                                        .decode('utf-8', errors='replace'))
+                        log.info(f'[tunnel:{ap_id}] guacd disconnected')
+                        return
+                    buf.extend(chunk)
+
+                # Send all complete instructions in one WebSocket frame
                 last_semi = buf.rfind(b';')
                 if last_semi >= 0:
                     to_send = bytes(buf[:last_semi + 1])
@@ -545,7 +576,16 @@ def tunnel(ws, ap_id):
                     log.info(f'[tunnel:{ap_id}] Browser disconnected')
                     break
                 raw = data.encode('utf-8') if isinstance(data, str) else data
-                guacd_sock.sendall(raw)
+                # Socket is non-blocking; use select to wait for writability
+                total = 0
+                while total < len(raw):
+                    _, wready, _ = select.select([], [guacd_sock], [], 5.0)
+                    if not wready:
+                        continue
+                    sent = guacd_sock.send(raw[total:])
+                    if sent == 0:
+                        raise ConnectionError('guacd socket closed')
+                    total += sent
         except Exception as e:
             if not done.is_set():
                 log.debug(f'[tunnel:{ap_id}] browser→guacd ended: '
