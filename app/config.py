@@ -38,6 +38,11 @@ class Config:
     GUACLITE_SECRET_KEY = os.environ.get('GUACLITE_SECRET_KEY',
                                          '4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON')
 
+    # Python WebSocket relay fallback (disable when using guacamole-lite to
+    # avoid silent fallback masking connectivity issues)
+    GUAC_PYTHON_RELAY_ENABLED = os.environ.get(
+        'GUAC_PYTHON_RELAY_ENABLED', 'false').lower() == 'true'
+
     # flask-sock: accept the 'guacamole' WebSocket subprotocol
     SOCK_SERVER_OPTIONS = {'subprotocols': ['guacamole']}
 

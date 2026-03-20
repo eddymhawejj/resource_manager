@@ -234,14 +234,20 @@
     statusDot.className = 'status-indicator connecting';
     overlay.classList.remove('active');
 
-    // Connect via guacamole-lite (native Node.js relay) for performance.
-    // Falls back to the Python relay if guacamole-lite URL is not configured.
+    // Connect via guacamole-lite (native Node.js relay).
+    // Python relay fallback is only used if GUAC_PYTHON_RELAY_ENABLED=true.
     var tunnel;
     if (GUACLITE_URL && GUACLITE_TOKEN) {
       var wsUrl = GUACLITE_URL + '/?token=' + encodeURIComponent(GUACLITE_TOKEN);
       tunnel = new Guacamole.WebSocketTunnel(wsUrl);
-    } else {
+    } else if (TUNNEL_PATH) {
       tunnel = new Guacamole.WebSocketTunnel(TUNNEL_PATH);
+    } else {
+      statusDot.className = 'status-indicator disconnected';
+      showOverlay('Configuration Error',
+        'guacamole-lite URL is not configured and the Python relay fallback is disabled. ' +
+        'Check GUACLITE_URL or set GUAC_PYTHON_RELAY_ENABLED=true.');
+      return;
     }
     client = new Guacamole.Client(tunnel);
 

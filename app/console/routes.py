@@ -290,11 +290,14 @@ def session(ap_id):
     ap.last_accessed_at = datetime.now(timezone.utc)
     db.session.commit()
 
+    relay_enabled = current_app.config.get('GUAC_PYTHON_RELAY_ENABLED', False)
+    tunnel_path = url_for('console.tunnel', ap_id=ap_id) if relay_enabled else ''
+
     return render_template(
         'console/session.html',
         ap=ap,
         resource=resource,
-        tunnel_path=url_for('console.tunnel', ap_id=ap_id),
+        tunnel_path=tunnel_path,
         guaclite_url=guaclite_url,
         guaclite_token=token,
     )
@@ -383,8 +386,20 @@ def diagnostics():
 
 @sock.route('/<int:ap_id>/tunnel', bp=bp)
 def tunnel(ws, ap_id):
-    """WebSocket <-> guacd TCP relay."""
+    """WebSocket <-> guacd TCP relay (Python fallback).
+
+    Disabled by default when guacamole-lite is the primary relay.
+    Set GUAC_PYTHON_RELAY_ENABLED=true to enable.
+    """
     log = current_app.logger
+
+    if not current_app.config.get('GUAC_PYTHON_RELAY_ENABLED', False):
+        log.warning(f'[tunnel:{ap_id}] Python relay is disabled '
+                    f'(GUAC_PYTHON_RELAY_ENABLED=false). Rejecting connection.')
+        _ws_close(ws, 'Python relay is disabled. '
+                  'Check guacamole-lite connectivity or set '
+                  'GUAC_PYTHON_RELAY_ENABLED=true.')
+        return
 
     log.info(f'[tunnel:{ap_id}] WebSocket opened, user authenticated: '
              f'{current_user.is_authenticated}')
