@@ -1,4 +1,17 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    depends_on:
+      - app
+
   app:
     build: .
     restart: unless-stopped
@@ -15,6 +28,7 @@ services:
       - GUACD_PORT=4822
       - GUACLITE_URL=${GUACLITE_URL:-ws://localhost:8080}
       - GUACLITE_SECRET_KEY=${GUACLITE_SECRET_KEY:-4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON}
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-}
       - DRIVE_PATH=/app/data/drive
       - MAIL_SERVER=${MAIL_SERVER:-}
       - MAIL_PORT=${MAIL_PORT:-587}
@@ -63,5 +77,7 @@ services:
       - GUACLITE_SECRET_KEY=${GUACLITE_SECRET_KEY:-4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON}
 
 volumes:
+  caddy_data:
+  caddy_config:
   guacd_record:
   guaclite_modules:

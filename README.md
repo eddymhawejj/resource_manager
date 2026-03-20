@@ -37,8 +37,10 @@ Templates are rendered server-side with Jinja2. Custom styling and a dark/light 
 
 | Component | Purpose |
 |-----------|---------|
+| Caddy | Reverse proxy with automatic HTTPS (Docker, ports 80/443) |
 | guacd | Apache Guacamole server-side proxy daemon (Docker) |
 | guacamole-lite | Node.js native WebSocket↔guacd relay (Docker, port 8080) |
+| gunicorn + gevent | Production WSGI server with WebSocket support (port 5000) |
 | Python relay | Flask-Sock WebSocket relay fallback (disabled by default) |
 
 ### Database
@@ -58,7 +60,7 @@ Templates are rendered server-side with Jinja2. Custom styling and a dark/light 
 - **Admin Panel** — user management, runtime SMTP/LDAP configuration, logo upload
 - **Theming** — dark and light mode with persistent toggle
 
-## Quick Start
+## Quick Start (Development)
 
 ```bash
 # Install dependencies
@@ -75,6 +77,26 @@ python run.py
 ```
 
 The app starts at **http://localhost:5000**. Log in with the seeded admin credentials.
+
+## Production Deployment
+
+```bash
+# Configure your domain and secrets in .env
+DOMAIN=lab.example.com
+SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+GUACLITE_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+GUACLITE_URL=wss://lab.example.com/websocket-tunnel
+
+# Start all services — Caddy auto-provisions TLS via Let's Encrypt
+docker compose up -d
+```
+
+Caddy handles HTTPS termination and proxies to the Flask app and guacamole-lite WebSocket. Gunicorn auto-scales workers to `2x CPU + 1` (max 4 for SQLite). Override with `GUNICORN_WORKERS`.
+
+```
+Browser → Caddy (:443, HTTPS/WSS) → Flask/gunicorn (:5000)
+                                   → guacamole-lite (:8080) → guacd (:4822)
+```
 
 ## Configuration
 
@@ -99,6 +121,8 @@ Copy `.env.example` to `.env` and adjust values as needed:
 | `GUAC_PYTHON_RELAY_ENABLED` | `false` | Enable Python WebSocket relay fallback |
 | `GUACD_HOST` | `localhost` | guacd daemon hostname |
 | `GUACD_PORT` | `4822` | guacd daemon port |
+| `DOMAIN` | `localhost` | Domain for Caddy reverse proxy (auto-TLS) |
+| `GUNICORN_WORKERS` | auto | Gunicorn worker count (default: 2x CPU + 1, max 4) |
 
 SMTP and LDAP settings can also be configured at runtime from the admin settings page.
 
@@ -125,6 +149,9 @@ resource_manager/
 │   ├── templates/          # Jinja2 HTML templates
 │   └── static/             # CSS, JS, uploads
 ├── guacamole-lite/         # Node.js guacamole-lite relay (Docker)
+├── Caddyfile               # Caddy reverse proxy configuration
+├── Dockerfile              # Flask app container build
+├── entrypoint.sh           # Gunicorn startup with auto-scaling workers
 ├── migrations/             # Alembic migration scripts
 └── instance/               # SQLite database file
 ```

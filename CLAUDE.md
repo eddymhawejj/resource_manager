@@ -6,10 +6,26 @@ Flask-based lab resource management system with booking, ICMP monitoring, and ca
 
 ```bash
 pip install -r requirements.txt
-docker compose up -d   # Starts guacd + guacamole-lite (in-browser RDP/SSH)
+docker compose up -d   # Starts Caddy, guacd, guacamole-lite, and Flask app
 flask init-db          # Creates SQLite DB + default admin (admin/admin)
-python run.py          # Starts dev server on :5000
+python run.py          # Starts dev server on :5000 (dev only)
 ```
+
+## Production Deployment
+
+```bash
+# Set domain and secrets in .env
+DOMAIN=lab.example.com
+SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+GUACLITE_URL=wss://lab.example.com/websocket-tunnel
+
+# Start all services (Caddy auto-provisions TLS via Let's Encrypt)
+docker compose up -d
+```
+
+Architecture: `Browser → Caddy (HTTPS/WSS, :443) → Flask (:5000) / guacamole-lite (:8080) → guacd (:4822)`
+
+Gunicorn auto-scales to `2x CPU + 1` workers (max 4 for SQLite). Override with `GUNICORN_WORKERS`.
 
 ## Project Structure
 
@@ -66,6 +82,8 @@ See `.env.example`. Key ones:
 - `GUACLITE_URL` — guacamole-lite WebSocket URL (default: `ws://localhost:8080`)
 - `GUACLITE_SECRET_KEY` — shared secret for token encryption
 - `GUAC_PYTHON_RELAY_ENABLED` — enable Python WebSocket relay fallback (default: `false`)
+- `DOMAIN` — domain for Caddy reverse proxy (default: `localhost`)
+- `GUNICORN_WORKERS` — override auto-scaled worker count (default: `2x CPU + 1`, max 4)
 
 ## Testing
 
