@@ -7,7 +7,7 @@ services:
       - ./data/drive:/app/data/drive
       - ./instance:/app/instance
       - ./app/static/uploads:/app/app/static/uploads
-      - ./resolv.conf:/etc/resolv.conf:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
     environment:
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
       - DATABASE_URL=sqlite:////app/instance/resource_manager.db
@@ -43,7 +43,7 @@ services:
     volumes:
       - ./data/drive:/drive
       - guacd_record:/record
-      - ./resolv.conf:/etc/resolv.conf:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
     environment:
       - GUACD_LOG_LEVEL=info
 
