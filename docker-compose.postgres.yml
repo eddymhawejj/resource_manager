@@ -1,0 +1,34 @@
+# Docker Compose override for PostgreSQL deployment.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Set in .env:
+#   DATABASE_URL=postgresql://resmanager:changeme@localhost:5432/resource_manager
+#   POSTGRES_PASSWORD=changeme
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=resource_manager
+      - POSTGRES_USER=resmanager
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resmanager -d resource_manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    environment:
+      - DATABASE_URL=postgresql://resmanager:${POSTGRES_PASSWORD:-changeme}@localhost:5432/resource_manager
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

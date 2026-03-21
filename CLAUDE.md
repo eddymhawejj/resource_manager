@@ -49,9 +49,30 @@ app/
   static/              # CSS, JS, uploads
 ```
 
+## PostgreSQL Migration
+
+SQLite is the default for development and small deployments. For production scale, migrate to PostgreSQL:
+
+```bash
+# 1. Start PostgreSQL (via docker compose overlay)
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d postgres
+
+# 2. Migrate data from existing SQLite
+flask migrate-to-postgres postgresql://resmanager:changeme@localhost:5432/resource_manager
+
+# 3. Update .env
+DATABASE_URL=postgresql://resmanager:changeme@localhost:5432/resource_manager
+POSTGRES_PASSWORD=changeme
+
+# 4. Restart with PostgreSQL
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+For fresh PostgreSQL installs (no existing data): just set `DATABASE_URL` to a `postgresql://` URI and run `flask init-db`. The app auto-creates all tables via `db.create_all()`.
+
 ## Key Architectural Decisions
 
-- **SQLite** with auto-migration in `_auto_migrate()` — no Alembic commands needed for schema changes. New columns/tables are added on startup.
+- **SQLite** (default) with auto-migration in `_auto_migrate()` — no Alembic commands needed for schema changes. New columns/tables are added on startup. **PostgreSQL** is supported as a production alternative; set `DATABASE_URL` to a `postgresql://` URI and `_auto_migrate()` uses `db.create_all()` + portable ALTER TABLE instead of raw SQLite DDL.
 - **Multi-host resources**: Each `Resource` has multiple `ResourceHost` entries (IP/hostname). Hosts have a `critical` flag — only critical hosts affect resource status (online/offline/degraded).
 - **PingResult** links to `ResourceHost` (via `host_id`), not directly to `Resource`.
 - **Booking emails** include `.ics` calendar attachments so Outlook/Google Calendar auto-create events. Cancellation emails send `METHOD:CANCEL` to remove events.

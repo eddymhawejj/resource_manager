@@ -184,8 +184,23 @@ def create_app(config_class=Config):
 def _auto_migrate(db):
     """Add missing columns/tables to existing database without requiring a full migration."""
     import sqlalchemy
+    dialect = db.engine.dialect.name
     inspector = sqlalchemy.inspect(db.engine)
     tables = inspector.get_table_names()
+
+    # For PostgreSQL: use SQLAlchemy's create_all() to create any missing tables
+    # from the ORM models, then only run ALTER TABLE for missing columns.
+    # The raw SQLite DDL (AUTOINCREMENT, table recreation) is skipped.
+    if dialect != 'sqlite':
+        db.create_all()
+        # After create_all, add any columns that might be missing from an
+        # older PostgreSQL schema (same logic, portable ALTER TABLE syntax).
+        inspector = sqlalchemy.inspect(db.engine)
+        tables = inspector.get_table_names()
+        _add_missing_columns(db, inspector, tables)
+        return
+
+    # ---------- SQLite auto-migration (original logic) ----------
 
     # Skip if this is a fresh database (no tables yet)
     if 'resources' not in tables:
@@ -497,6 +512,41 @@ def _auto_migrate(db):
         db.session.commit()
 
 
+def _add_missing_columns(db, inspector, tables):
+    """Add missing columns on PostgreSQL (or any non-SQLite dialect).
+
+    After create_all() creates any new tables from ORM models, this handles
+    the case where the table existed but a column was added to the model later.
+    Uses portable ALTER TABLE ADD COLUMN syntax.
+    """
+    import sqlalchemy
+
+    _column_defs = {
+        'ping_results': {
+            'resolved_ip': 'VARCHAR(45)',
+            'host_id': 'INTEGER REFERENCES resource_hosts(id)',
+        },
+        'resource_hosts': {
+            'critical': 'BOOLEAN NOT NULL DEFAULT true',
+            'subnet_id': 'INTEGER REFERENCES subnets(id)',
+        },
+        'bookings': {
+            'calendar_uid': 'VARCHAR(64)',
+        },
+    }
+
+    for table, columns in _column_defs.items():
+        if table not in tables:
+            continue
+        existing = {c['name'] for c in inspector.get_columns(table)}
+        for col_name, col_type in columns.items():
+            if col_name not in existing:
+                db.session.execute(sqlalchemy.text(
+                    f'ALTER TABLE {table} ADD COLUMN {col_name} {col_type}'
+                ))
+                db.session.commit()
+
+
 def register_cli(app):
     import click
 
@@ -526,6 +576,151 @@ def register_cli(app):
             click.echo('Initialized default settings')
 
         click.echo('Database initialized successfully.')
+
+    @app.cli.command('migrate-to-postgres')
+    @click.argument('postgres_url')
+    @click.option('--confirm', is_flag=True, help='Skip the confirmation prompt.')
+    def migrate_to_postgres(postgres_url, confirm):
+        """Migrate all data from the current SQLite database to PostgreSQL.
+
+        POSTGRES_URL is the target PostgreSQL connection string, e.g.:
+        postgresql://resmanager:changeme@localhost:5432/resource_manager
+
+        This command:
+        1. Connects to the current SQLite database (DATABASE_URL)
+        2. Creates all tables in the target PostgreSQL database
+        3. Copies every row from every table, preserving IDs
+        4. Resets PostgreSQL sequences to avoid ID conflicts
+
+        After migration, update DATABASE_URL in .env to the PostgreSQL URL.
+        """
+        import sqlalchemy
+        from sqlalchemy import create_engine, MetaData, text
+
+        src_uri = app.config['SQLALCHEMY_DATABASE_URI']
+        if 'sqlite' not in src_uri:
+            click.echo('Error: Current DATABASE_URL is not SQLite. '
+                        'This command migrates FROM SQLite TO PostgreSQL.')
+            raise SystemExit(1)
+
+        if not postgres_url.startswith('postgresql'):
+            click.echo('Error: Target URL must be a postgresql:// connection string.')
+            raise SystemExit(1)
+
+        if not confirm:
+            click.echo(f'Source:  {src_uri}')
+            click.echo(f'Target:  {postgres_url}')
+            click.echo()
+            if not click.confirm('This will copy all data to the target PostgreSQL database. Continue?'):
+                raise SystemExit(0)
+
+        # Connect to source (current SQLite) and target (PostgreSQL)
+        src_engine = db.engine
+        tgt_engine = create_engine(postgres_url)
+
+        # Reflect source schema
+        src_meta = MetaData()
+        src_meta.reflect(bind=src_engine)
+
+        # Create all tables in target from ORM models
+        click.echo('Creating tables in PostgreSQL...')
+        db.metadata.create_all(bind=tgt_engine)
+
+        # Copy data table by table
+        table_order = _migration_table_order(src_meta)
+        total_rows = 0
+
+        with tgt_engine.connect() as tgt_conn:
+            for table_name in table_order:
+                if table_name not in src_meta.tables:
+                    continue
+                src_table = src_meta.tables[table_name]
+
+                with src_engine.connect() as src_conn:
+                    rows = src_conn.execute(src_table.select()).fetchall()
+
+                if not rows:
+                    click.echo(f'  {table_name}: 0 rows (skipped)')
+                    continue
+
+                # Get column names from source
+                col_names = [c.name for c in src_table.columns]
+
+                # Truncate target table first (in case of re-run)
+                tgt_conn.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))
+                tgt_conn.commit()
+
+                # Insert in batches
+                batch_size = 500
+                row_dicts = [dict(zip(col_names, row)) for row in rows]
+                tgt_table = db.metadata.tables.get(table_name)
+                if tgt_table is None:
+                    # Table exists in source but not in ORM (shouldn't happen)
+                    click.echo(f'  {table_name}: skipped (not in ORM models)')
+                    continue
+
+                for i in range(0, len(row_dicts), batch_size):
+                    batch = row_dicts[i:i + batch_size]
+                    tgt_conn.execute(tgt_table.insert(), batch)
+                tgt_conn.commit()
+
+                total_rows += len(rows)
+                click.echo(f'  {table_name}: {len(rows)} rows')
+
+            # Reset PostgreSQL sequences so new inserts get correct IDs
+            click.echo('Resetting sequences...')
+            for table_name in table_order:
+                tgt_table = db.metadata.tables.get(table_name)
+                if tgt_table is None:
+                    continue
+                for col in tgt_table.columns:
+                    if col.primary_key and col.autoincrement is not False:
+                        seq_name = f'{table_name}_{col.name}_seq'
+                        try:
+                            tgt_conn.execute(text(
+                                f"SELECT setval('{seq_name}', COALESCE((SELECT MAX({col.name}) FROM \"{table_name}\"), 1))"
+                            ))
+                            tgt_conn.commit()
+                        except Exception:
+                            tgt_conn.rollback()
+
+        tgt_engine.dispose()
+        click.echo(f'\nMigration complete! {total_rows} total rows copied.')
+        click.echo(f'\nNext steps:')
+        click.echo(f'  1. Update DATABASE_URL in .env:')
+        click.echo(f'     DATABASE_URL={postgres_url}')
+        click.echo(f'  2. Restart the application')
+        click.echo(f'  3. Verify everything works, then remove the old SQLite file')
+
+
+def _migration_table_order(metadata):
+    """Return table names in insertion order (respects foreign keys)."""
+    # Tables with no FK dependencies first, then dependents
+    order = [
+        'users',
+        'app_settings',
+        'resources',
+        'vlans',
+        'tags',
+        'subnets',
+        'resource_hosts',
+        'bookings',
+        'ping_results',
+        'resource_tags',
+        'favorites',
+        'audit_log',
+        'maintenance_windows',
+        'alert_rules',
+        'waitlist_entries',
+        'resource_assignments',
+        'access_points',
+    ]
+    # Append any tables not in the predefined order
+    known = set(order)
+    for name in metadata.tables:
+        if name not in known:
+            order.append(name)
+    return order
 
 
 def start_scheduler(app):

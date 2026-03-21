@@ -8,9 +8,19 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-me')
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///resource_manager.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_pre_ping': True,
-    }
+
+    @staticmethod
+    def _engine_options():
+        uri = os.environ.get('DATABASE_URL', 'sqlite:///resource_manager.db')
+        opts = {'pool_pre_ping': True}
+        if uri.startswith('postgresql'):
+            opts.update({
+                'pool_size': int(os.environ.get('PG_POOL_SIZE', 5)),
+                'max_overflow': int(os.environ.get('PG_MAX_OVERFLOW', 10)),
+            })
+        return opts
+
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options.__func__()
     MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2MB max upload
 
     # Mail
