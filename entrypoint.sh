@@ -4,12 +4,11 @@ set -e
 # Initialize DB + default admin on first run
 flask init-db
 
-# Default workers: 2x CPU cores + 1, capped at 4 for SQLite safety.
+# Default workers: 2x CPU cores + 1.
 # Override with GUNICORN_WORKERS env var.
 if [ -z "$GUNICORN_WORKERS" ]; then
     CPU_COUNT=$(nproc 2>/dev/null || echo 1)
     GUNICORN_WORKERS=$(( CPU_COUNT * 2 + 1 ))
-    [ "$GUNICORN_WORKERS" -gt 4 ] && GUNICORN_WORKERS=4
 fi
 
 echo "Starting gunicorn with $GUNICORN_WORKERS workers"

@@ -156,7 +156,7 @@ def create_app(config_class=Config):
                             'url': url_for('bookings.list_bookings')})
         return jsonify(results[:20])
 
-    # Enable WAL mode for SQLite on every connection (allows concurrent reads + writes)
+    # Enable WAL mode for SQLite test databases
     if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
         from sqlalchemy import event
 
@@ -182,319 +182,44 @@ def create_app(config_class=Config):
 
 
 def _auto_migrate(db):
-    """Add missing columns/tables to existing database without requiring a full migration."""
+    """Ensure all tables and columns exist.
+
+    Uses SQLAlchemy's create_all() to create any missing tables from ORM models,
+    then checks for columns that may have been added to models after the table
+    was originally created.
+    """
     import sqlalchemy
+
+    db.create_all()
+
     inspector = sqlalchemy.inspect(db.engine)
     tables = inspector.get_table_names()
 
-    # Skip if this is a fresh database (no tables yet)
-    if 'resources' not in tables:
-        return
+    # Add any columns that might be missing from an older schema
+    _column_defs = {
+        'ping_results': {
+            'resolved_ip': 'VARCHAR(45)',
+            'host_id': 'INTEGER REFERENCES resource_hosts(id)',
+        },
+        'resource_hosts': {
+            'critical': 'BOOLEAN NOT NULL DEFAULT true',
+            'subnet_id': 'INTEGER REFERENCES subnets(id)',
+        },
+        'bookings': {
+            'calendar_uid': 'VARCHAR(64)',
+        },
+    }
 
-    # Add resolved_ip to ping_results if missing
-    if 'ping_results' in tables:
-        columns = [c['name'] for c in inspector.get_columns('ping_results')]
-        if 'resolved_ip' not in columns:
-            db.session.execute(sqlalchemy.text(
-                'ALTER TABLE ping_results ADD COLUMN resolved_ip VARCHAR(45)'
-            ))
-            db.session.commit()
-
-    # Create resource_hosts table if missing
-    if 'resource_hosts' not in tables:
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE resource_hosts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                address VARCHAR(255) NOT NULL,
-                label VARCHAR(100) NOT NULL DEFAULT '',
-                critical BOOLEAN NOT NULL DEFAULT 1
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_resource_hosts_resource_id ON resource_hosts (resource_id)'
-        ))
-        db.session.commit()
-
-        # Migrate existing ip_address values into resource_hosts
-        rows = db.session.execute(sqlalchemy.text(
-            "SELECT id, ip_address FROM resources WHERE ip_address IS NOT NULL AND ip_address != ''"
-        )).fetchall()
-        for row in rows:
-            db.session.execute(sqlalchemy.text(
-                'INSERT INTO resource_hosts (resource_id, address, label) VALUES (:rid, :addr, :label)'
-            ), {'rid': row[0], 'addr': row[1], 'label': ''})
-        if rows:
-            db.session.commit()
-
-    # Add critical column to resource_hosts if missing
-    if 'resource_hosts' in inspector.get_table_names():
-        rh_columns = [c['name'] for c in inspector.get_columns('resource_hosts')]
-        if 'critical' not in rh_columns:
-            db.session.execute(sqlalchemy.text(
-                'ALTER TABLE resource_hosts ADD COLUMN critical BOOLEAN NOT NULL DEFAULT 1'
-            ))
-            db.session.commit()
-
-    # Create vlans table if missing
-    if 'vlans' not in tables:
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE vlans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                number INTEGER NOT NULL UNIQUE,
-                name VARCHAR(100) NOT NULL DEFAULT '',
-                description TEXT DEFAULT ''
-            )
-        '''))
-        db.session.commit()
-
-    # Create subnets table if missing
-    if 'subnets' not in tables:
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE subnets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                vlan_id INTEGER NOT NULL REFERENCES vlans(id),
-                cidr VARCHAR(50) NOT NULL UNIQUE,
-                name VARCHAR(100) NOT NULL DEFAULT '',
-                gateway VARCHAR(45),
-                description TEXT DEFAULT ''
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_subnets_vlan_id ON subnets (vlan_id)'
-        ))
-        db.session.commit()
-
-    # Add subnet_id to resource_hosts if missing
-    if 'resource_hosts' in inspector.get_table_names():
-        rh_columns2 = [c['name'] for c in inspector.get_columns('resource_hosts')]
-        if 'subnet_id' not in rh_columns2:
-            db.session.execute(sqlalchemy.text(
-                'ALTER TABLE resource_hosts ADD COLUMN subnet_id INTEGER REFERENCES subnets(id)'
-            ))
-            db.session.commit()
-
-    # Add calendar_uid to bookings if missing
-    if 'bookings' in tables:
-        booking_columns = [c['name'] for c in inspector.get_columns('bookings')]
-        if 'calendar_uid' not in booking_columns:
-            db.session.execute(sqlalchemy.text(
-                'ALTER TABLE bookings ADD COLUMN calendar_uid VARCHAR(64)'
-            ))
-            db.session.commit()
-
-    # Migrate ping_results: add host_id, relax resource_id NOT NULL
-    if 'ping_results' in tables:
-        columns = [c['name'] for c in inspector.get_columns('ping_results')]
-        if 'host_id' not in columns:
-            # SQLite can't ALTER COLUMN, so recreate the table
-            db.session.execute(sqlalchemy.text('''
-                CREATE TABLE ping_results_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    host_id INTEGER REFERENCES resource_hosts(id),
-                    resource_id INTEGER,
-                    is_reachable BOOLEAN NOT NULL,
-                    response_time_ms FLOAT,
-                    resolved_ip VARCHAR(45),
-                    checked_at DATETIME
-                )
-            '''))
-            db.session.execute(sqlalchemy.text('''
-                INSERT INTO ping_results_new (id, resource_id, is_reachable, response_time_ms, resolved_ip, checked_at)
-                SELECT id, resource_id, is_reachable, response_time_ms, resolved_ip, checked_at
-                FROM ping_results
-            '''))
-            db.session.execute(sqlalchemy.text('DROP TABLE ping_results'))
-            db.session.execute(sqlalchemy.text('ALTER TABLE ping_results_new RENAME TO ping_results'))
-            db.session.execute(sqlalchemy.text(
-                'CREATE INDEX ix_ping_results_host_id ON ping_results (host_id)'
-            ))
-            db.session.execute(sqlalchemy.text(
-                'CREATE INDEX ix_ping_results_checked_at ON ping_results (checked_at)'
-            ))
-            db.session.commit()
-
-            # Migrate existing ping_results to link to their host
-            db.session.execute(sqlalchemy.text('''
-                UPDATE ping_results
-                SET host_id = (
-                    SELECT rh.id FROM resource_hosts rh
-                    WHERE rh.resource_id = ping_results.resource_id
-                    LIMIT 1
-                )
-                WHERE host_id IS NULL AND resource_id IS NOT NULL
-            '''))
-            db.session.commit()
-
-    # Create tags table if missing
-    if 'tags' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name VARCHAR(50) NOT NULL UNIQUE,
-                color VARCHAR(7) NOT NULL DEFAULT '#6c757d'
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE UNIQUE INDEX ix_tags_name ON tags (name)'
-        ))
-        db.session.commit()
-
-    # Create resource_tags association table if missing
-    if 'resource_tags' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE resource_tags (
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                tag_id INTEGER NOT NULL REFERENCES tags(id),
-                PRIMARY KEY (resource_id, tag_id)
-            )
-        '''))
-        db.session.commit()
-
-    # Create favorites table if missing
-    if 'favorites' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL REFERENCES users(id),
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                created_at DATETIME,
-                UNIQUE (user_id, resource_id)
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_favorites_user_id ON favorites (user_id)'
-        ))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_favorites_resource_id ON favorites (resource_id)'
-        ))
-        db.session.commit()
-
-    # Create audit_log table if missing
-    if 'audit_log' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER REFERENCES users(id),
-                action VARCHAR(50) NOT NULL,
-                target_type VARCHAR(50),
-                target_id INTEGER,
-                details TEXT,
-                timestamp DATETIME
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_audit_log_user_id ON audit_log (user_id)'
-        ))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_audit_log_timestamp ON audit_log (timestamp)'
-        ))
-        db.session.commit()
-
-    # Create maintenance_windows table if missing
-    if 'maintenance_windows' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE maintenance_windows (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                title VARCHAR(200) NOT NULL,
-                start_time DATETIME NOT NULL,
-                end_time DATETIME NOT NULL,
-                notes TEXT,
-                created_by INTEGER REFERENCES users(id),
-                created_at DATETIME
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_maintenance_windows_resource_id ON maintenance_windows (resource_id)'
-        ))
-        db.session.commit()
-
-    # Create alert_rules table if missing
-    if 'alert_rules' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE alert_rules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                alert_type VARCHAR(20) NOT NULL DEFAULT 'email',
-                target VARCHAR(500) NOT NULL,
-                enabled BOOLEAN DEFAULT 1,
-                created_by INTEGER REFERENCES users(id),
-                created_at DATETIME,
-                last_triggered DATETIME
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_alert_rules_resource_id ON alert_rules (resource_id)'
-        ))
-        db.session.commit()
-
-    # Create waitlist_entries table if missing
-    if 'waitlist_entries' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE waitlist_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                user_id INTEGER NOT NULL REFERENCES users(id),
-                desired_start DATETIME NOT NULL,
-                desired_end DATETIME NOT NULL,
-                notes TEXT,
-                status VARCHAR(20) NOT NULL DEFAULT 'waiting',
-                created_at DATETIME,
-                notified_at DATETIME
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_waitlist_entries_resource_id ON waitlist_entries (resource_id)'
-        ))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_waitlist_entries_user_id ON waitlist_entries (user_id)'
-        ))
-        db.session.commit()
-
-    # Create resource_assignments table if missing (shared children with slots)
-    if 'resource_assignments' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE resource_assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                parent_id INTEGER NOT NULL REFERENCES resources(id),
-                child_id INTEGER NOT NULL REFERENCES resources(id),
-                slots INTEGER NOT NULL DEFAULT 1,
-                notes TEXT DEFAULT '',
-                created_at DATETIME,
-                UNIQUE (parent_id, child_id)
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_resource_assignments_parent_id ON resource_assignments (parent_id)'
-        ))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_resource_assignments_child_id ON resource_assignments (child_id)'
-        ))
-        db.session.commit()
-
-    # Create access_points table if missing
-    if 'access_points' not in inspector.get_table_names():
-        db.session.execute(sqlalchemy.text('''
-            CREATE TABLE access_points (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                resource_id INTEGER NOT NULL REFERENCES resources(id),
-                protocol VARCHAR(20) NOT NULL DEFAULT 'rdp',
-                hostname VARCHAR(255) NOT NULL,
-                port INTEGER,
-                username VARCHAR(100) DEFAULT '',
-                password_b64 TEXT DEFAULT '',
-                display_name VARCHAR(100) DEFAULT '',
-                is_enabled BOOLEAN DEFAULT 1,
-                last_accessed_by INTEGER REFERENCES users(id),
-                last_accessed_at DATETIME,
-                created_at DATETIME
-            )
-        '''))
-        db.session.execute(sqlalchemy.text(
-            'CREATE INDEX ix_access_points_resource_id ON access_points (resource_id)'
-        ))
-        db.session.commit()
+    for table, columns in _column_defs.items():
+        if table not in tables:
+            continue
+        existing = {c['name'] for c in inspector.get_columns(table)}
+        for col_name, col_type in columns.items():
+            if col_name not in existing:
+                db.session.execute(sqlalchemy.text(
+                    f'ALTER TABLE {table} ADD COLUMN {col_name} {col_type}'
+                ))
+                db.session.commit()
 
 
 def register_cli(app):
