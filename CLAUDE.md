@@ -88,10 +88,13 @@ See `.env.example`. Key ones:
 ## Testing
 
 ```bash
-python -c "from app import create_app; app = create_app(); ..."
+pip install pytest
+pytest                # Run all 95 tests
+pytest -x             # Stop on first failure
+pytest tests/test_models.py  # Run a specific file
 ```
 
-No formal test suite yet. Test via app factory + manual verification.
+Tests cover models, auth, resources, bookings, monitoring, network, and admin routes. CI runs on every push via GitHub Actions.
 
 ## Development Notes
 
