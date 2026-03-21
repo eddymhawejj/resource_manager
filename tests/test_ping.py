@@ -67,6 +67,9 @@ class TestPingAllResources:
             db.session.add(host)
             db.session.commit()
 
+            # Reset mock before our call — APScheduler may have triggered it already
+            mock_ping.reset_mock()
+
             from app.monitoring.ping_service import ping_all_resources
             ping_all_resources(app)
 
