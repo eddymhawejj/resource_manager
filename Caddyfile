@@ -1,0 +1,27 @@
+{$DOMAIN:localhost} {
+	# WebSocket proxy to guacamole-lite (must be before the catch-all)
+	@websocket_tunnel {
+		path /websocket-tunnel
+	}
+	reverse_proxy @websocket_tunnel localhost:8080
+
+	# Reverse proxy to Flask app (catch-all)
+	reverse_proxy localhost:5000
+
+	# Security headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-XSS-Protection "1; mode=block"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Gzip compression
+	encode gzip
+
+	log {
+		output stdout
+	}
+}

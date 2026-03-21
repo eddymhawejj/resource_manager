@@ -324,17 +324,16 @@ function exportTableToCSV(tableEl, filename) {
 
 // ===== Access Point Connect =====
 function _handleConnectResponse(data, csrfToken) {
+  // If user has no booking, offer to quick-book instead of opening the console
+  if (data.needs_booking && data.testbed_id) {
+    document.getElementById('quick-book-testbed-id').value = data.testbed_id;
+    new bootstrap.Modal(document.getElementById('quickBookModal')).show();
+    return;
+  }
+
   // Open in-browser console in a new tab
   if (data.console_url) {
     window.open(data.console_url, '_blank');
-  }
-
-  // If user has no booking, offer to quick-book
-  if (data.needs_booking && data.testbed_id) {
-    document.getElementById('quick-book-testbed-id').value = data.testbed_id;
-    setTimeout(function () {
-      new bootstrap.Modal(document.getElementById('quickBookModal')).show();
-    }, 500);
   }
 }
 

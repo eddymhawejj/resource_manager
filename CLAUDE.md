@@ -6,10 +6,26 @@ Flask-based lab resource management system with booking, ICMP monitoring, and ca
 
 ```bash
 pip install -r requirements.txt
-docker compose up -d   # Starts guacd (Guacamole proxy for in-browser RDP/SSH)
+docker compose up -d   # Starts Caddy, guacd, guacamole-lite, and Flask app
 flask init-db          # Creates SQLite DB + default admin (admin/admin)
-python run.py          # Starts dev server on :5000
+python run.py          # Starts dev server on :5000 (dev only)
 ```
+
+## Production Deployment
+
+```bash
+# Set domain and secrets in .env
+DOMAIN=lab.example.com
+SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+GUACLITE_URL=wss://lab.example.com/websocket-tunnel
+
+# Start all services (Caddy auto-provisions TLS via Let's Encrypt)
+docker compose up -d
+```
+
+Architecture: `Browser → Caddy (HTTPS/WSS, :443) → Flask (:5000) / guacamole-lite (:8080) → guacd (:4822)`
+
+Gunicorn auto-scales to `2x CPU + 1` workers (max 4 for SQLite). Override with `GUNICORN_WORKERS`.
 
 ## Project Structure
 
@@ -23,7 +39,9 @@ app/
   auth/                # Login, registration, LDAP auth
   resources/           # Resource CRUD, host management (multi-IP support)
   bookings/            # Booking CRUD, calendar view, conflict detection
-  console/             # In-browser RDP/SSH via Guacamole (guacd + WebSocket tunnel)
+  console/             # In-browser RDP/SSH via guacamole-lite + guacd
+    routes.py          # File transfer, diagnostics, Python relay fallback
+    token.py           # AES-256-CBC token encryption for guacamole-lite
   monitoring/          # ICMP ping service, dashboard, status badges
   network/             # VLAN/subnet management, network overview, auto-linking
   admin/               # Admin panel, SMTP settings, branding
@@ -40,6 +58,7 @@ app/
 - **APScheduler** runs ping monitoring in background (configurable interval).
 - **SMTP** can be configured via environment variables or runtime via admin panel (`AppSettings` table).
 - **VLAN/Subnet mapping**: `Vlan` → `Subnet` → `ResourceHost`. When a host IP is added, it auto-links to the matching subnet. Network overview page shows the full lab topology.
+- **Console relay**: guacamole-lite (Node.js) is the primary WebSocket↔guacd relay for in-browser RDP/SSH. A Python relay fallback exists but is disabled by default (`GUAC_PYTHON_RELAY_ENABLED=false`) to prevent silent fallback masking connectivity issues. Connection tokens are AES-256-CBC encrypted.
 
 ## Models
 
@@ -50,6 +69,7 @@ app/
 - `Booking` — time-slot reservation with `calendar_uid` for .ics event matching.
 - `PingResult` — ICMP ping result linked to a host.
 - `User` — local or LDAP auth, admin/user roles.
+- `AccessPoint` — RDP/SSH connection endpoint for a resource. Has protocol, hostname, port, credentials, and `is_enabled` flag.
 - `AppSettings` — key-value store for runtime config (SMTP, branding).
 
 ## Environment Variables
@@ -59,14 +79,22 @@ See `.env.example`. Key ones:
 - `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` — SMTP config
 - `LDAP_ENABLED`, `LDAP_URL` — LDAP authentication
 - `PING_INTERVAL_SECONDS` — monitoring frequency (default: 60)
+- `GUACLITE_URL` — guacamole-lite WebSocket URL (default: `ws://localhost:8080`)
+- `GUACLITE_SECRET_KEY` — shared secret for token encryption
+- `GUAC_PYTHON_RELAY_ENABLED` — enable Python WebSocket relay fallback (default: `false`)
+- `DOMAIN` — domain for Caddy reverse proxy (default: `localhost`)
+- `GUNICORN_WORKERS` — override auto-scaled worker count (default: `2x CPU + 1`, max 4)
 
 ## Testing
 
 ```bash
-python -c "from app import create_app; app = create_app(); ..."
+pip install pytest
+pytest                # Run all 161 tests
+pytest -x             # Stop on first failure
+pytest tests/test_models.py  # Run a specific file
 ```
 
-No formal test suite yet. Test via app factory + manual verification.
+Tests cover models, auth, resources, bookings, monitoring, network, and admin routes. CI runs on every push via GitHub Actions.
 
 ## Development Notes
 
