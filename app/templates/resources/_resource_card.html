@@ -3,7 +3,7 @@
     <div class="d-flex justify-content-between align-items-start mb-2">
       <div class="d-flex align-items-center gap-1 resource-card-tags" style="min-width: 0; overflow: hidden;">
         <span class="resource-type flex-shrink-0">{{ testbed.resource_type }}</span>
-        {% set tag_list = testbed.tags.all() %}
+        {% set tag_list = testbed.tags %}
         {% if tag_list %}
         <div class="card-tag-group d-flex align-items-center gap-1" style="min-width: 0;">
           <span class="badge card-tag-count flex-shrink-0" style="background-color: {{ tag_list[0].color }}; font-size: 0.6rem; cursor: default;" title="{{ tag_list|map(attribute='name')|join(', ') }}">
@@ -40,14 +40,14 @@
     <p class="text-muted small mb-3">{{ testbed.description|truncate(100) }}</p>
     {% endif %}
     <div class="resource-meta">
-      {% set host_count = testbed.hosts.count() %}
+      {% set host_count = testbed.hosts | length %}
       {% if host_count %}
       <span><i class="bi bi-hdd-network"></i>{{ host_count }} host{{ 's' if host_count != 1 }}</span>
       {% endif %}
       {% if testbed.location %}
       <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>
       {% endif %}
-      <span><i class="bi bi-diagram-3"></i>{{ testbed.children.count() }} children</span>
+      <span><i class="bi bi-diagram-3"></i>{{ testbed.children | length }} children</span>
       {% if testbed.shared_child_assignments.count() %}
       <span title="Shared resources assigned"><i class="bi bi-share"></i>{{ testbed.shared_child_assignments.count() }} shared</span>
       {% endif %}

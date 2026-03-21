@@ -51,7 +51,7 @@ def _sync_hosts_from_form(resource):
             critical_flags.append(True)
 
     # Delete existing hosts
-    for host in resource.hosts.all():
+    for host in list(resource.hosts):
         db.session.delete(host)
 
     # Add new hosts (skip empty rows and invalid addresses)

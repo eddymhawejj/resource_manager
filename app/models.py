@@ -62,14 +62,14 @@ class Resource(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     parent_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=True)
 
-    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='dynamic',
+    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='select',
                                cascade='all, delete-orphan')
-    hosts = db.relationship('ResourceHost', backref='resource', lazy='dynamic',
+    hosts = db.relationship('ResourceHost', backref='resource', lazy='select',
                             order_by='ResourceHost.label',
                             cascade='all, delete-orphan')
-    bookings = db.relationship('Booking', backref='resource', lazy='dynamic',
+    bookings = db.relationship('Booking', backref='resource', lazy='select',
                                cascade='all, delete-orphan')
-    tags = db.relationship('Tag', secondary=resource_tags, back_populates='resources', lazy='dynamic')
+    tags = db.relationship('Tag', secondary=resource_tags, back_populates='resources', lazy='select')
 
     @property
     def is_testbed(self):
@@ -81,10 +81,7 @@ class Resource(db.Model):
 
         A host is only 'offline' if the last 3 consecutive pings all failed.
         """
-        results = []
-        for host in self.hosts.all():
-            results.append((host, host.ping_status))
-        return results
+        return [(host, host.ping_status) for host in self.hosts]
 
     @property
     def status(self):
@@ -93,7 +90,7 @@ class Resource(db.Model):
         Only hosts marked as critical affect the overall status.
         Non-critical hosts are informational and don't trigger degraded.
         """
-        host_list = self.hosts.all()
+        host_list = self.hosts
         if host_list:
             # Only critical hosts determine the resource status
             critical_statuses = []
@@ -115,7 +112,7 @@ class Resource(db.Model):
             return 'unknown'
 
         # No hosts: aggregate active children statuses
-        child_list = [c for c in self.children.all() if c.is_active]
+        child_list = [c for c in self.children if c.is_active]
         if not child_list:
             return 'unknown'
 
@@ -140,7 +137,7 @@ class Resource(db.Model):
     @property
     def all_children(self):
         """Return exclusive children (via parent_id) + shared children (via assignments)."""
-        exclusive = list(self.children.all())
+        exclusive = list(self.children)
         shared = [a.child for a in self.shared_child_assignments.all()]
         seen = {c.id for c in exclusive}
         for c in shared:
@@ -233,7 +230,7 @@ class Subnet(db.Model):
     gateway = db.Column(db.String(45), nullable=True)
     description = db.Column(db.Text, default='')
 
-    hosts = db.relationship('ResourceHost', backref='subnet', lazy='dynamic')
+    hosts = db.relationship('ResourceHost', backref='subnet', lazy='select')
 
     @property
     def network(self):
@@ -242,7 +239,7 @@ class Subnet(db.Model):
 
     @property
     def host_count(self):
-        return self.hosts.count()
+        return len(self.hosts)
 
     def contains(self, addr):
         """Check if an IP address string falls within this subnet."""
@@ -307,6 +304,10 @@ class ResourceHost(db.Model):
 
     @property
     def latest_ping(self):
+        # Use pre-fetched data if available (set by _prefetch_recent_pings)
+        cached = getattr(self, '_recent_pings', None)
+        if cached is not None:
+            return cached[0] if cached else None
         return self.ping_results.first()
 
     @property
@@ -316,7 +317,12 @@ class ResourceHost(db.Model):
         Requires OFFLINE_THRESHOLD consecutive failures before reporting
         offline, to avoid flapping on a single timeout.
         """
-        recent_pings = self.ping_results.limit(self.OFFLINE_THRESHOLD).all()
+        # Use pre-fetched data if available (set by _prefetch_recent_pings)
+        cached = getattr(self, '_recent_pings', None)
+        if cached is not None:
+            recent_pings = cached[:self.OFFLINE_THRESHOLD]
+        else:
+            recent_pings = self.ping_results.limit(self.OFFLINE_THRESHOLD).all()
         if not recent_pings:
             return 'unknown'
         if recent_pings[0].is_reachable:

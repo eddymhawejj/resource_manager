@@ -120,7 +120,7 @@
       {% if subnet.description %}
       <small class="text-muted d-block mb-2">{{ subnet.description }}</small>
       {% endif %}
-      {% set hosts = subnet.hosts.all() %}
+      {% set hosts = subnet.hosts %}
       {% if hosts %}
       <div class="table-responsive">
         <table class="table table-sm mb-0">

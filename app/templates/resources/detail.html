@@ -94,7 +94,7 @@
           <div class="col-sm-6 mb-3">
             <label class="form-label text-muted small mb-0">Tags</label>
             <div>
-              {% for tag in resource.tags.all() %}
+              {% for tag in resource.tags %}
               <span class="badge" style="background-color: {{ tag.color }};">{{ tag.name }}</span>
               {% else %}
               <span class="text-muted small">No tags</span>
@@ -195,7 +195,7 @@
       <div class="collapse" id="ap-admin-form">
         <div class="card-footer bg-transparent">
           <h6 class="small text-muted mb-2">Add Access Point</h6>
-          {% set hosts = resource.hosts.all() %}
+          {% set hosts = resource.hosts %}
           <form method="POST" action="{{ url_for('resources.add_access_point', resource_id=resource.id) }}" id="ap-add-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2 mb-2">
@@ -275,9 +275,9 @@
 
     <!-- Hosts -->
     <div class="card mb-4">
-      <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts.count() }})</div>
+      <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts | length }})</div>
       <div class="card-body p-0">
-        {% set host_list = resource.hosts.all() %}
+        {% set host_list = resource.hosts %}
         {% if host_list %}
         <ul class="list-group list-group-flush">
           {% for host in host_list %}
@@ -358,7 +358,7 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-activity me-2"></i>Ping History</div>
       <div class="card-body">
-        {% set host_list = resource.hosts.all() %}
+        {% set host_list = resource.hosts %}
         {% if host_list %}
           {% for host in host_list %}
           <div class="{% if not loop.first %}mt-3{% endif %}">
@@ -586,7 +586,7 @@
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
             <td>
-              {% set child_hosts = child.hosts.all() %}
+              {% set child_hosts = child.hosts %}
               {% if child_hosts %}
                 {% for h in child_hosts %}
                 <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
@@ -671,7 +671,7 @@
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
             <td>
-              {% set child_hosts = child.hosts.all() %}
+              {% set child_hosts = child.hosts %}
               {% if child_hosts %}
                 {% for h in child_hosts %}
                 <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>

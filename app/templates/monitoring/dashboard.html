@@ -18,6 +18,7 @@
   <div class="col-md-6 col-xl-4">
     <div class="card">
       <div class="card-body">
+        {% set hosts = resource.hosts | list %}
         <div class="d-flex justify-content-between align-items-start mb-3">
           <div>
             <h6 class="mb-1">
@@ -25,7 +26,7 @@
                 {{ resource.name }}
               </a>
             </h6>
-            {% for host in resource.hosts.all() %}
+            {% for host in hosts %}
             <div>
               <code class="small">{{ host.address }}</code>
               {% if host.label %}
@@ -54,11 +55,11 @@
         </div>
 
         <!-- Mini ping history bars -->
-        {% for host in resource.hosts.all() %}
-        {% set pings = host.ping_results[:30]|list %}
+        {% for host in hosts %}
+        {% set pings = host._recent_pings %}
         {% if pings %}
         <div class="{% if not loop.first %}mt-2{% endif %}">
-          {% if resource.hosts.count() > 1 %}
+          {% if hosts | length > 1 %}
           <small class="text-muted d-block mb-1">{{ host.label or host.address }}</small>
           {% endif %}
           <div class="ping-bar">
@@ -72,7 +73,7 @@
         </div>
         {% endif %}
         {% endfor %}
-        {% if not resource.hosts.all()|selectattr('ping_results')|list %}
+        {% if not hosts | selectattr('_recent_pings') | list %}
         <small class="text-muted">Waiting for first ping...</small>
         {% endif %}
       </div>

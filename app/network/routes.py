@@ -26,7 +26,7 @@ def _wipe_discovered_devices(subnet_id=None):
     count = len(devices)
     for device in devices:
         # Delete ping results for device hosts
-        host_ids = [h.id for h in device.hosts.all()]
+        host_ids = [h.id for h in device.hosts]
         if host_ids:
             PingResult.query.filter(PingResult.host_id.in_(host_ids)).delete(synchronize_session=False)
         db.session.delete(device)
@@ -476,7 +476,7 @@ def topology_data():
             })
             edges.append({'from': vlan_node_id, 'to': subnet_node_id})
 
-            for host in subnet.hosts.all():
+            for host in subnet.hosts:
                 host_node_id = f'host-{host.id}'
                 ping = host.latest_ping
                 status_color = '#6c757d'
