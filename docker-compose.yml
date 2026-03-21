@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=resource_manager
+      - POSTGRES_USER=resmanager
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resmanager -d resource_manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -18,12 +34,11 @@ services:
     network_mode: host
     volumes:
       - ./data/drive:/app/data/drive
-      - ./instance:/app/instance
       - ./app/static/uploads:/app/app/static/uploads
       - /etc/resolv.conf:/etc/resolv.conf:ro
     environment:
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
-      - DATABASE_URL=sqlite:////app/instance/resource_manager.db
+      - DATABASE_URL=postgresql://resmanager:${POSTGRES_PASSWORD:-changeme}@localhost:5432/resource_manager
       - GUACD_HOST=localhost
       - GUACD_PORT=4822
       - GUACLITE_URL=${GUACLITE_URL:-ws://localhost:8080}
@@ -45,8 +60,12 @@ services:
       - PING_INTERVAL_SECONDS=${PING_INTERVAL_SECONDS:-60}
       - PING_TIMEOUT_SECONDS=${PING_TIMEOUT_SECONDS:-2}
     depends_on:
-      - guacd
-      - guacamole-lite
+      postgres:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+      guacamole-lite:
+        condition: service_started
 
   guacd:
     image: guacamole/guacd:1.5.5
@@ -77,6 +96,7 @@ services:
       - GUACLITE_SECRET_KEY=${GUACLITE_SECRET_KEY:-4BQXC6JAPXst3EDAHhjpJRa2bNGi3lON}
 
 volumes:
+  pgdata:
   caddy_data:
   caddy_config:
   guacd_record:

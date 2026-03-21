@@ -45,9 +45,9 @@ Templates are rendered server-side with Jinja2. Custom styling and a dark/light 
 
 ### Database
 
-- **SQLite** — default, zero-configuration database stored at `instance/resource_manager.db`
-- Managed through SQLAlchemy ORM with Flask-Migrate for schema migrations
-- Configurable via `DATABASE_URL` to use any SQLAlchemy-supported backend
+- **PostgreSQL 16** — production database managed via Docker Compose
+- Managed through SQLAlchemy ORM with auto-migration on startup
+- Configurable via `DATABASE_URL` environment variable
 
 ## Features
 
@@ -91,7 +91,7 @@ GUACLITE_URL=wss://lab.example.com/websocket-tunnel
 docker compose up -d
 ```
 
-Caddy handles HTTPS termination and proxies to the Flask app and guacamole-lite WebSocket. Gunicorn auto-scales workers to `2x CPU + 1` (max 4 for SQLite). Override with `GUNICORN_WORKERS`.
+Caddy handles HTTPS termination and proxies to the Flask app and guacamole-lite WebSocket. Gunicorn auto-scales workers to `2x CPU + 1`. Override with `GUNICORN_WORKERS`.
 
 ```
 Browser → Caddy (:443, HTTPS/WSS) → Flask/gunicorn (:5000)
@@ -105,7 +105,8 @@ Copy `.env.example` to `.env` and adjust values as needed:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SECRET_KEY` | `change-me-...` | Flask session secret |
-| `DATABASE_URL` | `sqlite:///resource_manager.db` | Database connection string |
+| `DATABASE_URL` | `postgresql://...` | Database connection string |
+| `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password |
 | `MAIL_SERVER` | — | SMTP server hostname |
 | `MAIL_PORT` | `587` | SMTP port |
 | `MAIL_USE_TLS` | `true` | Enable TLS |
@@ -152,6 +153,5 @@ resource_manager/
 ├── Caddyfile               # Caddy reverse proxy configuration
 ├── Dockerfile              # Flask app container build
 ├── entrypoint.sh           # Gunicorn startup with auto-scaling workers
-├── migrations/             # Alembic migration scripts
-└── instance/               # SQLite database file
+└── migrations/             # Alembic migration scripts
 ```
