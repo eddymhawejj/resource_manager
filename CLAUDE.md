@@ -89,7 +89,7 @@ See `.env.example`. Key ones:
 
 ```bash
 pip install pytest
-pytest                # Run all 95 tests
+pytest                # Run all 161 tests
 pytest -x             # Stop on first failure
 pytest tests/test_models.py  # Run a specific file
 ```
