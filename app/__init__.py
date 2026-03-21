@@ -631,6 +631,11 @@ def register_cli(app):
         total_rows = 0
 
         with tgt_engine.connect() as tgt_conn:
+            # Disable FK triggers during bulk copy — SQLite doesn't enforce FKs
+            # by default, so source data may contain orphaned references.
+            # We clean them up after the copy, before re-enabling.
+            tgt_conn.execute(text('SET session_replication_role = replica'))
+
             for table_name in table_order:
                 if table_name not in src_meta.tables:
                     continue
@@ -648,7 +653,6 @@ def register_cli(app):
 
                 # Truncate target table first (in case of re-run)
                 tgt_conn.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE'))
-                tgt_conn.commit()
 
                 # Insert in batches
                 batch_size = 500
@@ -662,10 +666,17 @@ def register_cli(app):
                 for i in range(0, len(row_dicts), batch_size):
                     batch = row_dicts[i:i + batch_size]
                     tgt_conn.execute(tgt_table.insert(), batch)
-                tgt_conn.commit()
 
                 total_rows += len(rows)
                 click.echo(f'  {table_name}: {len(rows)} rows')
+
+            # Clean up orphaned FK references that SQLite allowed
+            click.echo('Cleaning up orphaned references...')
+            _cleanup_orphaned_fks(tgt_conn, click)
+
+            # Re-enable FK constraint triggers
+            tgt_conn.execute(text('SET session_replication_role = DEFAULT'))
+            tgt_conn.commit()
 
             # Reset PostgreSQL sequences so new inserts get correct IDs
             click.echo('Resetting sequences...')
@@ -691,6 +702,45 @@ def register_cli(app):
         click.echo(f'     DATABASE_URL={postgres_url}')
         click.echo(f'  2. Restart the application')
         click.echo(f'  3. Verify everything works, then remove the old SQLite file')
+
+
+def _cleanup_orphaned_fks(conn, click):
+    """Null out orphaned FK references that SQLite allowed but PostgreSQL rejects."""
+    from sqlalchemy import text
+
+    # Each entry: (table, fk_column, referenced_table, referenced_column)
+    fk_pairs = [
+        ('ping_results', 'host_id', 'resource_hosts', 'id'),
+        ('ping_results', 'resource_id', 'resources', 'id'),
+        ('resource_hosts', 'subnet_id', 'subnets', 'id'),
+        ('bookings', 'resource_id', 'resources', 'id'),
+        ('bookings', 'user_id', 'users', 'id'),
+        ('favorites', 'user_id', 'users', 'id'),
+        ('favorites', 'resource_id', 'resources', 'id'),
+        ('audit_log', 'user_id', 'users', 'id'),
+        ('maintenance_windows', 'resource_id', 'resources', 'id'),
+        ('maintenance_windows', 'created_by', 'users', 'id'),
+        ('alert_rules', 'resource_id', 'resources', 'id'),
+        ('alert_rules', 'created_by', 'users', 'id'),
+        ('waitlist_entries', 'resource_id', 'resources', 'id'),
+        ('waitlist_entries', 'user_id', 'users', 'id'),
+        ('resource_assignments', 'parent_id', 'resources', 'id'),
+        ('resource_assignments', 'child_id', 'resources', 'id'),
+        ('access_points', 'resource_id', 'resources', 'id'),
+        ('access_points', 'last_accessed_by', 'users', 'id'),
+    ]
+
+    for table, fk_col, ref_table, ref_col in fk_pairs:
+        try:
+            result = conn.execute(text(
+                f'UPDATE "{table}" SET "{fk_col}" = NULL '
+                f'WHERE "{fk_col}" IS NOT NULL '
+                f'AND "{fk_col}" NOT IN (SELECT "{ref_col}" FROM "{ref_table}")'
+            ))
+            if result.rowcount > 0:
+                click.echo(f'  Fixed {result.rowcount} orphaned {table}.{fk_col} references')
+        except Exception:
+            pass  # Table may not exist or column is NOT NULL — skip
 
 
 def _migration_table_order(metadata):
