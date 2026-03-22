@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.dashboard') }}">Admin</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('admin.groups') }}">Access Groups</a></li>
+    <li class="breadcrumb-item active">{{ title }}</li>
+  </ol>
+</nav>
+
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-shield-lock me-2"></i>Group Details</div>
+      <div class="card-body">
+        <form method="POST">
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.name.label(class="form-label") }}
+            {{ form.name(class="form-control", placeholder="e.g. Lab Team A") }}
+            {% for error in form.name.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+          <div class="mb-3">
+            {{ form.description.label(class="form-label") }}
+            {{ form.description(class="form-control", placeholder="Optional description") }}
+          </div>
+          <div class="mb-3">
+            {{ form.ldap_dn.label(class="form-label") }}
+            {{ form.ldap_dn(class="form-control", placeholder="e.g. CN=Lab-TeamA,OU=Groups,DC=example,DC=com") }}
+            <small class="form-text text-muted">
+              If set, LDAP users in this group will be auto-synced on login. Leave blank for manual-only groups.
+            </small>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+            <a href="{{ url_for('admin.groups') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% if group %}
+  <div class="col-lg-6">
+    <!-- Members -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people me-2"></i>Members ({{ group.members|length }})</span>
+        {% if group.ldap_dn %}
+        <span class="badge bg-info text-dark" title="Members with LDAP accounts are auto-synced on login">LDAP Synced</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.update_group_members', group_id=group.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% set member_ids = group.members|map(attribute='id')|list %}
+          {% set all_users = [] %}
+          {% for user in users_list %}
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input" name="member_ids" value="{{ user.id }}"
+                   id="member-{{ user.id }}" {{ 'checked' if user.id in member_ids }}>
+            <label class="form-check-label" for="member-{{ user.id }}">
+              {{ user.display_name }} <small class="text-muted">({{ user.username }})</small>
+              {% if user.auth_type == 'ldap' %}
+              <span class="badge bg-info text-dark" style="font-size: 0.65em;">LDAP</span>
+              {% endif %}
+            </label>
+          </div>
+          {% endfor %}
+          <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="bi bi-check-lg me-1"></i>Update Members</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="card mb-4">
+      <div class="card-header"><i class="bi bi-hdd-stack me-2"></i>Restricted Resources ({{ group.resources|length }})</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.update_group_resources', group_id=group.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <small class="text-muted d-block mb-2">
+            Select resources that should be restricted to this group. Unselected resources remain available to everyone.
+          </small>
+          {% set resource_ids = group.resources|map(attribute='id')|list %}
+          {% for resource in resources_list %}
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input" name="resource_ids" value="{{ resource.id }}"
+                   id="resource-{{ resource.id }}" {{ 'checked' if resource.id in resource_ids }}>
+            <label class="form-check-label" for="resource-{{ resource.id }}">
+              {{ resource.name }}
+              <small class="text-muted">({{ resource.resource_type }})</small>
+            </label>
+          </div>
+          {% endfor %}
+          <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="bi bi-check-lg me-1"></i>Update Resources</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

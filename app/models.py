@@ -17,6 +17,19 @@ resource_tags = db.Table(
     db.Column('tag_id', db.Integer, db.ForeignKey('tags.id'), primary_key=True),
 )
 
+# ===== Association tables for ResourceGroup =====
+group_members = db.Table(
+    'group_members',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('resource_groups.id'), primary_key=True),
+)
+
+resource_group_access = db.Table(
+    'resource_group_access',
+    db.Column('resource_id', db.Integer, db.ForeignKey('resources.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('resource_groups.id'), primary_key=True),
+)
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -169,6 +182,24 @@ class Resource(db.Model):
         if not assignments:
             return 1
         return min(a.slots for a in assignments)
+
+    def is_visible_to(self, user):
+        """Check if user can see/book this resource based on group restrictions.
+
+        No access_groups = available to everyone (backwards-compatible).
+        Child resources inherit parent's group restrictions.
+        Admins bypass all restrictions.
+        """
+        if user.is_admin:
+            return True
+        groups = self.access_groups
+        if not groups and self.parent_id and self.parent:
+            groups = self.parent.access_groups
+        if not groups:
+            return True
+        user_group_ids = {g.id for g in user.resource_groups}
+        resource_group_ids = {g.id for g in groups}
+        return bool(user_group_ids & resource_group_ids)
 
     def __repr__(self):
         return f'<Resource {self.name}>'
@@ -448,6 +479,24 @@ class Tag(db.Model):
         return f'<Tag {self.name}>'
 
 
+class ResourceGroup(db.Model):
+    __tablename__ = 'resource_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.Text, default='')
+    ldap_dn = db.Column(db.String(500), nullable=True, unique=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    members = db.relationship('User', secondary=group_members,
+                              backref=db.backref('resource_groups', lazy='select'))
+    resources = db.relationship('Resource', secondary=resource_group_access,
+                                backref=db.backref('access_groups', lazy='select'))
+
+    def __repr__(self):
+        return f'<ResourceGroup {self.name}>'
+
+
 # ===== Favorite resources =====
 class Favorite(db.Model):
     __tablename__ = 'favorites'
@@ -640,12 +689,16 @@ class AccessPoint(db.Model):
 def can_user_access(user, resource):
     """Check if user can access a resource's access points.
 
-    Requires an active confirmed booking on the resource itself,
+    Requires group membership (if resource has access_groups),
+    plus an active confirmed booking on the resource itself,
     or on any parent testbed (exclusive or shared).
     Admins always have access.
     """
     if user.is_admin:
         return True
+    # Group restriction gate
+    if not resource.is_visible_to(user):
+        return False
     # Direct booking on this resource
     if Booking.user_has_active_booking(user.id, resource.id):
         return True

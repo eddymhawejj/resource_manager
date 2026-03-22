@@ -61,6 +61,32 @@
             {% endif %}
           </div>
 
+          <!-- Access Groups -->
+          {% if all_groups is defined and all_groups %}
+          <div class="mb-3">
+            <label class="form-label">Access Groups</label>
+            <small class="form-text text-muted d-block mb-2">
+              Restrict this resource to specific groups. If no groups are selected, all users can see and book it.
+            </small>
+            {% set current_group_ids = resource.access_groups|map(attribute='id')|list if resource and resource.access_groups else [] %}
+            {% for group in all_groups %}
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input" name="access_group_ids" value="{{ group.id }}"
+                     id="group-{{ group.id }}" {{ 'checked' if group.id in current_group_ids }}>
+              <label class="form-check-label" for="group-{{ group.id }}">
+                {{ group.name }}
+                {% if group.ldap_dn %}
+                <span class="badge bg-info text-dark" style="font-size: 0.65em;">LDAP</span>
+                {% endif %}
+                {% if group.description %}
+                <small class="text-muted">- {{ group.description }}</small>
+                {% endif %}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
           <!-- Hosts section -->
           <div class="mb-4">
             <label class="form-label">Hosts</label>

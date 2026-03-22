@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from app.models import (
     User, Resource, ResourceHost, Booking, PingResult,
     Vlan, Subnet, AppSettings, Tag, Favorite, AccessPoint,
-    MaintenanceWindow, ResourceAssignment, AuditLog, can_user_access,
+    MaintenanceWindow, ResourceAssignment, AuditLog, ResourceGroup,
+    can_user_access,
 )
 
 
@@ -411,3 +412,100 @@ class TestCanUserAccess:
         db.session.add(b)
         db.session.commit()
         assert can_user_access(regular_user, child)
+
+
+class TestResourceGroup:
+    def test_create_group(self, db):
+        group = ResourceGroup(name='Team A', description='Test team', ldap_dn='CN=TeamA,OU=Groups,DC=example,DC=com')
+        db.session.add(group)
+        db.session.commit()
+        assert group.id is not None
+        assert group.name == 'Team A'
+        assert group.ldap_dn == 'CN=TeamA,OU=Groups,DC=example,DC=com'
+
+    def test_group_members(self, db):
+        group = ResourceGroup(name='Team B')
+        user = User(username='member1', email='m1@t.com', display_name='Member 1', role='user')
+        user.set_password('test123')
+        db.session.add_all([group, user])
+        db.session.commit()
+        group.members.append(user)
+        db.session.commit()
+        assert user in group.members
+        assert group in user.resource_groups
+
+    def test_group_resources(self, db):
+        group = ResourceGroup(name='Team C')
+        resource = Resource(name='Restricted TB', resource_type='testbed')
+        db.session.add_all([group, resource])
+        db.session.commit()
+        group.resources.append(resource)
+        db.session.commit()
+        assert resource in group.resources
+        assert group in resource.access_groups
+
+
+class TestResourceVisibility:
+    def test_no_groups_visible_to_all(self, db, regular_user, sample_resource):
+        """Resources without access groups are visible to everyone."""
+        assert sample_resource.is_visible_to(regular_user)
+
+    def test_admin_always_visible(self, db, admin_user, sample_resource):
+        """Admins can see group-restricted resources."""
+        group = ResourceGroup(name='Restricted')
+        db.session.add(group)
+        db.session.commit()
+        sample_resource.access_groups = [group]
+        db.session.commit()
+        assert sample_resource.is_visible_to(admin_user)
+
+    def test_non_member_cannot_see(self, db, regular_user, sample_resource):
+        """Users not in the group cannot see restricted resources."""
+        group = ResourceGroup(name='Secret Team')
+        db.session.add(group)
+        db.session.commit()
+        sample_resource.access_groups = [group]
+        db.session.commit()
+        assert not sample_resource.is_visible_to(regular_user)
+
+    def test_member_can_see(self, db, regular_user, sample_resource):
+        """Users in the group can see restricted resources."""
+        group = ResourceGroup(name='My Team')
+        db.session.add(group)
+        db.session.commit()
+        group.members.append(regular_user)
+        sample_resource.access_groups = [group]
+        db.session.commit()
+        assert sample_resource.is_visible_to(regular_user)
+
+    def test_child_inherits_parent_groups(self, db, regular_user, sample_resource):
+        """Child resources inherit parent's group restrictions."""
+        group = ResourceGroup(name='Parent Group')
+        db.session.add(group)
+        db.session.commit()
+        sample_resource.access_groups = [group]
+        child = Resource(name='Child', resource_type='server', parent_id=sample_resource.id)
+        db.session.add(child)
+        db.session.commit()
+        # Not a member — child should be hidden too
+        assert not child.is_visible_to(regular_user)
+        # Add to group — child should be visible
+        group.members.append(regular_user)
+        db.session.commit()
+        assert child.is_visible_to(regular_user)
+
+    def test_can_user_access_blocked_by_group(self, db, regular_user, sample_resource):
+        """can_user_access returns False if user is not in required group, even with booking."""
+        group = ResourceGroup(name='Gatekeep')
+        db.session.add(group)
+        db.session.commit()
+        sample_resource.access_groups = [group]
+        now = datetime.now(timezone.utc)
+        b = Booking(
+            resource_id=sample_resource.id, user_id=regular_user.id,
+            title='Blocked', start_time=now - timedelta(hours=1),
+            end_time=now + timedelta(hours=1), status='confirmed',
+        )
+        db.session.add(b)
+        db.session.commit()
+        assert not can_user_access(regular_user, sample_resource)

@@ -101,6 +101,16 @@
               {% endfor %}
             </div>
           </div>
+          {% if resource.access_groups %}
+          <div class="col-sm-6 mb-3">
+            <label class="form-label text-muted small mb-0">Access Groups</label>
+            <div>
+              {% for group in resource.access_groups %}
+              <span class="badge bg-warning text-dark"><i class="bi bi-shield-lock me-1"></i>{{ group.name }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
           {% if resource.description %}
           <div class="col-12 mb-3">
             <label class="form-label text-muted small mb-0">Description</label>

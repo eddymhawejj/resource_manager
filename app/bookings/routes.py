@@ -35,6 +35,8 @@ def calendar():
     testbeds = Resource.query.filter_by(parent_id=None).filter(
         Resource.resource_type != 'device'
     ).order_by(Resource.name).all()
+    if not current_user.is_admin:
+        testbeds = [t for t in testbeds if t.is_visible_to(current_user)]
     return render_template('bookings/calendar.html', testbeds=testbeds)
 
 
@@ -91,9 +93,15 @@ def create():
     testbeds = Resource.query.filter_by(parent_id=None, is_active=True).filter(
         Resource.resource_type != 'device'
     ).order_by(Resource.name).all()
+    if not current_user.is_admin:
+        testbeds = [t for t in testbeds if t.is_visible_to(current_user)]
     form.resource_id.choices = [(t.id, t.name) for t in testbeds]
 
     if form.validate_on_submit():
+        # Server-side group access check
+        target_resource = db.session.get(Resource, form.resource_id.data)
+        if target_resource and not target_resource.is_visible_to(current_user):
+            abort(403)
         if form.all_day.data:
             if not form.all_day_date.data:
                 flash('Please select a date for the all-day booking.', 'danger')

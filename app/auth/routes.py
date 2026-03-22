@@ -3,7 +3,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 
 from app.auth import bp
 from app.auth.forms import LoginForm, RegisterForm
-from app.auth.ldap_auth import authenticate_ldap
+from app.auth.ldap_auth import authenticate_ldap, sync_user_groups
 from app.extensions import db
 from app.models import User, AppSettings
 
@@ -41,6 +41,10 @@ def login():
                         role='user',
                     )
                     db.session.add(user)
+                    db.session.commit()
+                # Sync LDAP group memberships to local groups
+                if ldap_info.get('groups'):
+                    sync_user_groups(user, ldap_info['groups'])
                     db.session.commit()
                 login_user(user, remember=form.remember.data)
                 next_page = request.args.get('next')

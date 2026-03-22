@@ -9,7 +9,8 @@ from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
 from app.models import (Resource, ResourceHost, ResourceAssignment, AuditLog, Tag, Favorite,
-                        MaintenanceWindow, AlertRule, AccessPoint, Booking, can_user_access)
+                        MaintenanceWindow, AlertRule, AccessPoint, Booking, ResourceGroup,
+                        can_user_access)
 
 
 def _is_valid_host(value):
@@ -102,10 +103,15 @@ def list_resources():
         selectinload(Resource.shared_child_assignments),
         selectinload(Resource.hosts),
         selectinload(Resource.tags),
+        selectinload(Resource.access_groups),
     )
     if tag_filter:
         query = query.filter(Resource.tags.any(Tag.name == tag_filter))
     testbeds = query.order_by(Resource.name).all()
+
+    # Filter by group access (non-admins only see resources they have access to)
+    if not current_user.is_admin:
+        testbeds = [t for t in testbeds if t.is_visible_to(current_user)]
     all_tags = Tag.query.filter(Tag.resources.any()).order_by(Tag.name).all()
 
     # Get user's favorite resource IDs
@@ -148,6 +154,8 @@ def list_resources():
 @login_required
 def detail(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
+    if not resource.is_visible_to(current_user):
+        abort(403)
     children = Resource.query.filter_by(parent_id=resource_id).order_by(Resource.name).all()
     host_form = HostForm()
     is_favorited = Favorite.query.filter_by(user_id=current_user.id, resource_id=resource_id).first() is not None
@@ -255,11 +263,16 @@ def add_resource():
         # Handle tags
         tag_names = request.form.get('tags', '').split(',')
         _sync_tags(resource, tag_names)
+        # Handle access groups
+        group_ids = request.form.getlist('access_group_ids', type=int)
+        resource.access_groups = ResourceGroup.query.filter(ResourceGroup.id.in_(group_ids)).all() if group_ids else []
         AuditLog.log('resource.create', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Testbed "{resource.name}" created.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
-    return render_template('resources/form.html', form=form, title='Add Testbed', all_tags=Tag.query.order_by(Tag.name).all())
+    return render_template('resources/form.html', form=form, title='Add Testbed',
+                           all_tags=Tag.query.order_by(Tag.name).all(),
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/<int:resource_id>/edit', methods=['GET', 'POST'])
@@ -277,12 +290,16 @@ def edit_resource(resource_id):
         _sync_hosts_from_form(resource)
         tag_names = request.form.get('tags', '').split(',')
         _sync_tags(resource, tag_names)
+        # Handle access groups
+        group_ids = request.form.getlist('access_group_ids', type=int)
+        resource.access_groups = ResourceGroup.query.filter(ResourceGroup.id.in_(group_ids)).all() if group_ids else []
         AuditLog.log('resource.update', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Resource "{resource.name}" updated.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
     return render_template('resources/form.html', form=form, title=f'Edit {resource.name}',
-                           resource=resource, all_tags=Tag.query.order_by(Tag.name).all())
+                           resource=resource, all_tags=Tag.query.order_by(Tag.name).all(),
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/<int:resource_id>/delete', methods=['POST'])
