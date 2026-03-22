@@ -3,6 +3,7 @@ import shutil
 
 from flask import render_template, redirect, url_for, flash, abort, current_app, request, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
@@ -269,7 +270,7 @@ def audit_log():
         query = query.filter(AuditLog.action.like(f'{action_filter}%'))
 
     total = query.count()
-    entries = query.offset((page - 1) * per_page).limit(per_page).all()
+    entries = query.options(joinedload(AuditLog.user)).offset((page - 1) * per_page).limit(per_page).all()
     total_pages = (total + per_page - 1) // per_page
 
     return render_template('admin/audit_log.html', entries=entries,

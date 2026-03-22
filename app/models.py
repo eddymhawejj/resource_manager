@@ -138,7 +138,7 @@ class Resource(db.Model):
     def all_children(self):
         """Return exclusive children (via parent_id) + shared children (via assignments)."""
         exclusive = list(self.children)
-        shared = [a.child for a in self.shared_child_assignments.all()]
+        shared = [a.child for a in self.shared_child_assignments]
         seen = {c.id for c in exclusive}
         for c in shared:
             if c.id not in seen:
@@ -153,7 +153,7 @@ class Resource(db.Model):
         if self.parent:
             parents.append(self.parent)
         seen = {p.id for p in parents}
-        for a in self.shared_parent_assignments.all():
+        for a in self.shared_parent_assignments:
             if a.parent_id not in seen:
                 parents.append(a.parent)
                 seen.add(a.parent_id)
@@ -165,7 +165,7 @@ class Resource(db.Model):
 
         If the testbed has no shared-child assignments, returns 1 (standard single booking).
         """
-        assignments = self.shared_child_assignments.all()
+        assignments = list(self.shared_child_assignments)
         if not assignments:
             return 1
         return min(a.slots for a in assignments)
@@ -194,10 +194,10 @@ class ResourceAssignment(db.Model):
     __table_args__ = (db.UniqueConstraint('parent_id', 'child_id', name='uq_assignment_parent_child'),)
 
     parent = db.relationship('Resource', foreign_keys=[parent_id],
-                             backref=db.backref('shared_child_assignments', lazy='dynamic',
+                             backref=db.backref('shared_child_assignments', lazy='select',
                                                 cascade='all, delete-orphan'))
     child = db.relationship('Resource', foreign_keys=[child_id],
-                            backref=db.backref('shared_parent_assignments', lazy='dynamic',
+                            backref=db.backref('shared_parent_assignments', lazy='select',
                                                cascade='all, delete-orphan'))
 
     def __repr__(self):
@@ -212,7 +212,7 @@ class Vlan(db.Model):
     name = db.Column(db.String(100), nullable=False, default='')
     description = db.Column(db.Text, default='')
 
-    subnets = db.relationship('Subnet', backref='vlan', lazy='dynamic',
+    subnets = db.relationship('Subnet', backref='vlan', lazy='select',
                               order_by='Subnet.cidr',
                               cascade='all, delete-orphan')
 
@@ -594,7 +594,7 @@ class AccessPoint(db.Model):
     last_accessed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-    resource = db.relationship('Resource', backref=db.backref('access_points', lazy='dynamic',
+    resource = db.relationship('Resource', backref=db.backref('access_points', lazy='select',
                                                               cascade='all, delete-orphan'))
     last_user = db.relationship('User', foreign_keys=[last_accessed_by])
 
@@ -653,7 +653,7 @@ def can_user_access(user, resource):
     if resource.parent_id and Booking.user_has_active_booking(user.id, resource.parent_id):
         return True
     # Shared parent testbeds
-    for a in resource.shared_parent_assignments.all():
+    for a in resource.shared_parent_assignments:
         if Booking.user_has_active_booking(user.id, a.parent_id):
             return True
     return False

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from flask import render_template, redirect, url_for, flash, request, jsonify, abort
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 
 from app.bookings import bp
 from app.bookings.forms import BookingForm
@@ -20,7 +21,9 @@ def list_bookings():
     else:
         query = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.start_time.desc())
     total = query.count()
-    bookings = query.offset((page - 1) * per_page).limit(per_page).all()
+    bookings = query.options(
+        joinedload(Booking.resource), joinedload(Booking.user)
+    ).offset((page - 1) * per_page).limit(per_page).all()
     total_pages = (total + per_page - 1) // per_page
     return render_template('bookings/list.html', bookings=bookings,
                            page=page, total_pages=total_pages, total=total)
@@ -52,7 +55,9 @@ def events():
     if end:
         query = query.filter(Booking.start_time <= end)
 
-    bookings = query.all()
+    bookings = query.options(
+        joinedload(Booking.resource), joinedload(Booking.user)
+    ).all()
 
     colors = ['#0d6efd', '#198754', '#dc3545', '#ffc107', '#0dcaf0', '#6f42c1', '#fd7e14', '#20c997']
 
@@ -251,10 +256,12 @@ def add_to_waitlist():
 @bp.route('/waitlist')
 @login_required
 def waitlist():
-    if current_user.is_admin:
-        entries = WaitlistEntry.query.order_by(WaitlistEntry.created_at.desc()).all()
-    else:
-        entries = WaitlistEntry.query.filter_by(user_id=current_user.id).order_by(WaitlistEntry.created_at.desc()).all()
+    query = WaitlistEntry.query.options(
+        joinedload(WaitlistEntry.user), joinedload(WaitlistEntry.resource)
+    ).order_by(WaitlistEntry.created_at.desc())
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+    entries = query.all()
     return render_template('bookings/waitlist.html', entries=entries)
 
 

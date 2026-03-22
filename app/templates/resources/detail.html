@@ -664,9 +664,9 @@
               <a href="{{ url_for('resources.detail', resource_id=child.id) }}" class="text-decoration-none fw-medium">
                 {{ child.name }}
               </a>
-              {% set other_parents = child.shared_parent_assignments.filter(child.shared_parent_assignments.property.entity.class_.parent_id != resource.id).count() %}
-              {% if child.shared_parent_assignments.count() > 1 %}
-              <small class="text-muted ms-1">(shared with {{ child.shared_parent_assignments.count() - 1 }} other{{ 's' if child.shared_parent_assignments.count() > 2 }})</small>
+              {% set spa_count = child.shared_parent_assignments | length %}
+              {% if spa_count > 1 %}
+              <small class="text-muted ms-1">(shared with {{ spa_count - 1 }} other{{ 's' if spa_count > 2 }})</small>
               {% endif %}
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>

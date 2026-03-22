@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 
 from flask import render_template, redirect, url_for, flash, abort, request, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
@@ -96,6 +97,11 @@ def list_resources():
     tag_filter = request.args.get('tag', '')
     query = Resource.query.filter_by(parent_id=None).filter(
         Resource.resource_type != 'device'
+    ).options(
+        selectinload(Resource.children),
+        selectinload(Resource.shared_child_assignments),
+        selectinload(Resource.hosts),
+        selectinload(Resource.tags),
     )
     if tag_filter:
         query = query.filter(Resource.tags.any(Tag.name == tag_filter))
@@ -107,15 +113,29 @@ def list_resources():
     if current_user.is_authenticated:
         fav_ids = {f.resource_id for f in Favorite.query.filter_by(user_id=current_user.id).all()}
 
-    # Precompute access points per testbed (own + children + shared children)
+    # Batch-load all access points for all relevant resource IDs (1 query instead of N)
+    all_resource_ids = set()
+    for tb in testbeds:
+        all_resource_ids.add(tb.id)
+        all_resource_ids.update(c.id for c in tb.children)
+        all_resource_ids.update(a.child_id for a in tb.shared_child_assignments)
+    all_aps = AccessPoint.query.filter(
+        AccessPoint.resource_id.in_(all_resource_ids), AccessPoint.is_enabled == True
+    ).all() if all_resource_ids else []
+
+    # Group access points by testbed
+    ap_by_resource = {}
+    for ap in all_aps:
+        ap_by_resource.setdefault(ap.resource_id, []).append(ap)
+
     testbed_aps = {}
     for tb in testbeds:
         child_ids = [c.id for c in tb.children]
         shared_ids = [a.child_id for a in tb.shared_child_assignments]
         all_ids = [tb.id] + child_ids + shared_ids
-        aps = AccessPoint.query.filter(
-            AccessPoint.resource_id.in_(all_ids), AccessPoint.is_enabled == True
-        ).all()
+        aps = []
+        for rid in all_ids:
+            aps.extend(ap_by_resource.get(rid, []))
         if aps:
             testbed_aps[tb.id] = aps
 

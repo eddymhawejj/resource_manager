@@ -48,13 +48,13 @@
       <span><i class="bi bi-geo-alt"></i>{{ testbed.location }}</span>
       {% endif %}
       <span><i class="bi bi-diagram-3"></i>{{ testbed.children | length }} children</span>
-      {% if testbed.shared_child_assignments.count() %}
-      <span title="Shared resources assigned"><i class="bi bi-share"></i>{{ testbed.shared_child_assignments.count() }} shared</span>
+      {% if testbed.shared_child_assignments | length %}
+      <span title="Shared resources assigned"><i class="bi bi-share"></i>{{ testbed.shared_child_assignments | length }} shared</span>
       {% endif %}
       {% if testbed.max_concurrent_bookings > 1 %}
       <span title="Max concurrent bookings"><i class="bi bi-layers"></i>{{ testbed.max_concurrent_bookings }} slots</span>
       {% endif %}
-      {% set card_aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points.filter_by(is_enabled=True).all() %}
+      {% set card_aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points | selectattr('is_enabled') | list %}
       {% if card_aps %}
       <span title="Has access points"><i class="bi bi-plug"></i>{{ card_aps|length }} access</span>
       {% endif %}
@@ -65,7 +65,7 @@
       <i class="bi bi-eye me-1"></i>Details
     </a>
     <div class="d-flex gap-1">
-      {% set aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points.filter_by(is_enabled=True).all() %}
+      {% set aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points | selectattr('is_enabled') | list %}
       {% if aps|length == 1 %}
       <button class="btn btn-sm btn-outline-{% if aps[0].protocol == 'rdp' %}info{% else %}dark{% endif %}"
               onclick="connectAccess({{ testbed.id }}, {{ aps[0].id }}, '{{ aps[0].protocol }}')"

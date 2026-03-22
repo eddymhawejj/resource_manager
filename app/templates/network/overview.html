@@ -100,7 +100,7 @@
             </a>
           </div>
           <div class="card-body p-0">
-            {% set subnet_list = vlan.subnets.all() %}
+            {% set subnet_list = vlan.subnets %}
             {% if subnet_list %}
             <ul class="list-group list-group-flush">
               {% for subnet in subnet_list %}

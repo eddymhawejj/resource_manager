@@ -42,7 +42,7 @@
           </div>
           <div class="col-sm-4 mb-3">
             <label class="form-label text-muted small mb-0">Subnets</label>
-            <div class="fw-medium">{{ vlan.subnets.count() }}</div>
+            <div class="fw-medium">{{ vlan.subnets | length }}</div>
           </div>
           {% if vlan.description %}
           <div class="col-12">
@@ -58,7 +58,7 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Summary</div>
       <div class="card-body">
-        {% set all_subnets = vlan.subnets.all() %}
+        {% set all_subnets = vlan.subnets %}
         {% set total_hosts = namespace(count=0) %}
         {% for s in all_subnets %}
           {% set total_hosts.count = total_hosts.count + s.host_count %}
@@ -89,7 +89,7 @@
     {% endif %}
   </div>
   <div class="card-body p-0">
-    {% set subnets = vlan.subnets.all() %}
+    {% set subnets = vlan.subnets %}
     {% if subnets %}
     {% for subnet in subnets %}
     <div class="border-bottom p-3">
