@@ -129,6 +129,9 @@ def list_resources():
         AccessPoint.resource_id.in_(all_resource_ids), AccessPoint.is_enabled == True
     ).all() if all_resource_ids else []
 
+    # Filter by group access for current user
+    all_aps = [ap for ap in all_aps if ap.is_visible_to(current_user)]
+
     # Group access points by testbed
     ap_by_resource = {}
     for ap in all_aps:
@@ -209,7 +212,7 @@ def detail(resource_id):
             Resource.id != resource_id,
         ).order_by(Resource.name).all()
 
-    # Access points: own + children's (for testbeds)
+    # Access points: own + children's (for testbeds), filtered by group access
     own_access_points = AccessPoint.query.filter_by(resource_id=resource_id, is_enabled=True).all()
     child_access_points = []
     if resource.is_testbed:
@@ -219,7 +222,8 @@ def detail(resource_id):
             child_access_points = AccessPoint.query.filter(
                 AccessPoint.resource_id.in_(child_ids), AccessPoint.is_enabled == True
             ).all()
-    all_access_points = own_access_points + child_access_points
+    all_access_points = [ap for ap in own_access_points + child_access_points
+                         if ap.is_visible_to(current_user)]
     all_access_points_admin = AccessPoint.query.filter_by(resource_id=resource_id).all() if current_user.is_admin else []
 
     # Check if user has an active booking for this testbed
@@ -256,7 +260,8 @@ def detail(resource_id):
                            has_active_booking=has_active_booking,
                            can_access=can_access,
                            active_booker=active_booker,
-                           available_testbeds=available_testbeds)
+                           available_testbeds=available_testbeds,
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -769,6 +774,9 @@ def add_access_point(resource_id):
     password = request.form.get('password', '').strip()
     display_name = request.form.get('display_name', '').strip()
 
+    required_group_str = request.form.get('required_group_id', '').strip()
+    required_group_id = int(required_group_str) if required_group_str else None
+
     ap = AccessPoint(
         resource_id=resource_id,
         protocol=protocol,
@@ -776,6 +784,7 @@ def add_access_point(resource_id):
         port=port,
         username=username,
         display_name=display_name,
+        required_group_id=required_group_id,
     )
     ap.password = password
     db.session.add(ap)
@@ -818,6 +827,8 @@ def edit_access_point(resource_id, ap_id):
         ap.password = new_password
     ap.display_name = request.form.get('display_name', ap.display_name).strip()
     ap.is_enabled = 'is_enabled' in request.form
+    required_group_str = request.form.get('required_group_id', '').strip()
+    ap.required_group_id = int(required_group_str) if required_group_str else None
     db.session.commit()
     flash(f'Access point updated.', 'success')
     return redirect(url_for('resources.detail', resource_id=resource_id))
@@ -845,6 +856,10 @@ def delete_access_point(resource_id, ap_id):
 def connect_access_point(resource_id, ap_id):
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
+
+    # Check group restriction on the access point
+    if not ap.is_visible_to(current_user):
+        abort(403)
 
     # Check booking status (for quick-book prompt), but allow connect regardless
     has_booking = _can_access_check(resource)

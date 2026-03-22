@@ -643,9 +643,20 @@ class AccessPoint(db.Model):
     last_accessed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
+    required_group_id = db.Column(db.Integer, db.ForeignKey('resource_groups.id'), nullable=True)
+
     resource = db.relationship('Resource', backref=db.backref('access_points', lazy='select',
                                                               cascade='all, delete-orphan'))
+    required_group = db.relationship('ResourceGroup', foreign_keys=[required_group_id])
     last_user = db.relationship('User', foreign_keys=[last_accessed_by])
+
+    def is_visible_to(self, user):
+        """Check if user can see this access point based on group restriction."""
+        if user.is_admin:
+            return True
+        if not self.required_group_id:
+            return True
+        return any(g.id == self.required_group_id for g in user.resource_groups)
 
     @property
     def password(self):

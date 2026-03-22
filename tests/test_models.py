@@ -509,3 +509,46 @@ class TestResourceVisibility:
         db.session.add(b)
         db.session.commit()
         assert not can_user_access(regular_user, sample_resource)
+
+
+class TestAccessPointGroupRestriction:
+    def test_no_group_visible_to_all(self, db, regular_user, sample_resource):
+        """Access points without a required group are visible to everyone."""
+        ap = AccessPoint(resource_id=sample_resource.id, protocol='rdp', hostname='10.0.0.1')
+        db.session.add(ap)
+        db.session.commit()
+        assert ap.is_visible_to(regular_user)
+
+    def test_admin_always_visible(self, db, admin_user, sample_resource):
+        """Admins can see group-restricted access points."""
+        group = ResourceGroup(name='Admin AP Group')
+        db.session.add(group)
+        db.session.commit()
+        ap = AccessPoint(resource_id=sample_resource.id, protocol='rdp', hostname='10.0.0.1',
+                         required_group_id=group.id)
+        db.session.add(ap)
+        db.session.commit()
+        assert ap.is_visible_to(admin_user)
+
+    def test_non_member_cannot_see(self, db, regular_user, sample_resource):
+        """Users not in the required group cannot see the access point."""
+        group = ResourceGroup(name='Privileged')
+        db.session.add(group)
+        db.session.commit()
+        ap = AccessPoint(resource_id=sample_resource.id, protocol='rdp', hostname='10.0.0.1',
+                         required_group_id=group.id)
+        db.session.add(ap)
+        db.session.commit()
+        assert not ap.is_visible_to(regular_user)
+
+    def test_member_can_see(self, db, regular_user, sample_resource):
+        """Users in the required group can see the access point."""
+        group = ResourceGroup(name='Ops Team')
+        db.session.add(group)
+        db.session.commit()
+        group.members.append(regular_user)
+        ap = AccessPoint(resource_id=sample_resource.id, protocol='rdp', hostname='10.0.0.1',
+                         required_group_id=group.id)
+        db.session.add(ap)
+        db.session.commit()
+        assert ap.is_visible_to(regular_user)

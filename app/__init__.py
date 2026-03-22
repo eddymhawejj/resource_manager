@@ -208,6 +208,9 @@ def _auto_migrate(db):
         'bookings': {
             'calendar_uid': 'VARCHAR(64)',
         },
+        'access_points': {
+            'required_group_id': 'INTEGER REFERENCES resource_groups(id)',
+        },
     }
 
     for table, columns in _column_defs.items():
