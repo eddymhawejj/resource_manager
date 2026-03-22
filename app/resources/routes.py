@@ -145,9 +145,24 @@ def list_resources():
         if aps:
             testbed_aps[tb.id] = aps
 
+    # Batch-load active bookers for all testbeds (1 query instead of N)
+    now = datetime.now(timezone.utc)
+    testbed_ids = [tb.id for tb in testbeds]
+    active_bookings = Booking.query.filter(
+        Booking.resource_id.in_(testbed_ids),
+        Booking.status == 'confirmed',
+        Booking.start_time <= now,
+        Booking.end_time >= now,
+    ).options(joinedload(Booking.user)).all() if testbed_ids else []
+
+    active_bookers = {}
+    for b in active_bookings:
+        if b.resource_id not in active_bookers and b.user_id != current_user.id:
+            active_bookers[b.resource_id] = b.user
+
     return render_template('resources/list.html', testbeds=testbeds, all_tags=all_tags,
                            current_tag=tag_filter, fav_ids=fav_ids,
-                           testbed_aps=testbed_aps)
+                           testbed_aps=testbed_aps, active_bookers=active_bookers)
 
 
 @bp.route('/<int:resource_id>')
@@ -691,9 +706,8 @@ def _find_testbed_for_resource(resource):
     if resource.parent_id:
         return resource.parent_id
     # Check shared parents
-    a = resource.shared_parent_assignments.first()
-    if a:
-        return a.parent_id
+    if resource.shared_parent_assignments:
+        return resource.shared_parent_assignments[0].parent_id
     return resource.id
 
 

@@ -59,6 +59,12 @@
       <span title="Has access points"><i class="bi bi-plug"></i>{{ card_aps|length }} access</span>
       {% endif %}
     </div>
+    {% set card_booker = active_bookers.get(testbed.id) if active_bookers is defined else None %}
+    {% if card_booker %}
+    <div class="mt-2">
+      <span class="badge bg-warning text-dark"><i class="bi bi-person-fill me-1"></i>In use by {{ card_booker.display_name }}</span>
+    </div>
+    {% endif %}
   </div>
   <div class="card-footer bg-transparent border-top d-flex justify-content-between align-items-center py-2">
     <a href="{{ url_for('resources.detail', resource_id=testbed.id) }}" class="btn btn-sm btn-outline-primary">
@@ -66,24 +72,45 @@
     </a>
     <div class="d-flex gap-1">
       {% set aps = testbed_aps.get(testbed.id, []) if testbed_aps is defined else testbed.access_points | selectattr('is_enabled') | list %}
+      {% set booker = active_bookers.get(testbed.id) if active_bookers is defined else None %}
       {% if aps|length == 1 %}
-      <button class="btn btn-sm btn-outline-{% if aps[0].protocol == 'rdp' %}info{% else %}dark{% endif %}"
-              onclick="connectAccess({{ testbed.id }}, {{ aps[0].id }}, '{{ aps[0].protocol }}')"
-              title="Connect via {{ aps[0].protocol|upper }}">
-        <i class="bi bi-{% if aps[0].protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Connect
-      </button>
+        {% if booker %}
+        <button class="btn btn-sm btn-outline-warning"
+                onclick="forceConnect({{ testbed.id }}, {{ aps[0].id }}, '{{ aps[0].protocol }}', '{{ booker.display_name|e }}')"
+                title="In use by {{ booker.display_name }} — force connect">
+          <i class="bi bi-{% if aps[0].protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Force
+        </button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-{% if aps[0].protocol == 'rdp' %}info{% else %}dark{% endif %}"
+                onclick="connectAccess({{ testbed.id }}, {{ aps[0].id }}, '{{ aps[0].protocol }}')"
+                title="Connect via {{ aps[0].protocol|upper }}">
+          <i class="bi bi-{% if aps[0].protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>Connect
+        </button>
+        {% endif %}
       {% elif aps|length > 1 %}
       <div class="dropdown">
-        <button class="btn btn-sm btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Connect">
-          <i class="bi bi-plug me-1"></i>Connect
+        <button class="btn btn-sm btn-outline-{% if booker %}warning{% else %}info{% endif %} dropdown-toggle" type="button" data-bs-toggle="dropdown"
+                title="{% if booker %}In use by {{ booker.display_name }}{% else %}Connect{% endif %}">
+          <i class="bi bi-plug me-1"></i>{% if booker %}Force{% else %}Connect{% endif %}
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
+          {% if booker %}
+          <li><span class="dropdown-item-text small text-muted"><i class="bi bi-person-fill me-1"></i>In use by {{ booker.display_name }}</span></li>
+          <li><hr class="dropdown-divider"></li>
+          {% endif %}
           {% for ap in aps %}
           <li>
+            {% if booker %}
+            <a class="dropdown-item small" href="#" onclick="event.preventDefault(); forceConnect({{ testbed.id }}, {{ ap.id }}, '{{ ap.protocol }}', '{{ booker.display_name|e }}')">
+              <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>
+              {{ ap.display_name or (ap.protocol|upper + ' - ' + ap.hostname) }}
+            </a>
+            {% else %}
             <a class="dropdown-item small" href="#" onclick="event.preventDefault(); connectAccess({{ testbed.id }}, {{ ap.id }}, '{{ ap.protocol }}')">
               <i class="bi bi-{% if ap.protocol == 'rdp' %}display{% else %}terminal{% endif %} me-1"></i>
               {{ ap.display_name or (ap.protocol|upper + ' - ' + ap.hostname) }}
             </a>
+            {% endif %}
           </li>
           {% endfor %}
         </ul>
