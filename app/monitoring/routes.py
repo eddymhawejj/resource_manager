@@ -2,18 +2,63 @@ from datetime import datetime, timedelta, timezone
 
 from flask import render_template, jsonify, abort, request
 from flask_login import login_required
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.monitoring import bp
 from app.extensions import db
 from app.models import Resource, ResourceHost, PingResult, Booking, MaintenanceWindow
-from sqlalchemy import func
+
+
+def _prefetch_recent_pings(hosts, limit=30):
+    """Batch-load recent ping results for a list of hosts.
+
+    Avoids N+1 queries by fetching pings for all hosts in a single query,
+    then attaching them to each host as _recent_pings.
+    """
+    if not hosts:
+        return
+    host_ids = [h.id for h in hosts]
+    host_map = {h.id: h for h in hosts}
+
+    for h in hosts:
+        h._recent_pings = []
+
+    # Use a window function to rank pings per host and keep only the most recent N
+    ranked = (
+        db.session.query(PingResult)
+        .filter(PingResult.host_id.in_(host_ids))
+        .filter(PingResult.host_id.isnot(None))
+        .order_by(PingResult.host_id, PingResult.checked_at.desc())
+        .all()
+    )
+
+    # Group by host_id, keeping only `limit` per host
+    counts = {}
+    for pr in ranked:
+        hid = pr.host_id
+        counts[hid] = counts.get(hid, 0) + 1
+        if counts[hid] <= limit:
+            host_map[hid]._recent_pings.append(pr)
 
 
 @bp.route('/status/<int:resource_id>')
 @login_required
 def resource_status(resource_id):
     """HTMX partial: returns a status badge for a resource."""
-    resource = db.session.get(Resource, resource_id) or abort(404)
+    resource = (
+        Resource.query
+        .filter_by(id=resource_id)
+        .options(selectinload(Resource.hosts), selectinload(Resource.children).selectinload(Resource.hosts))
+        .first()
+    ) or abort(404)
+
+    # Pre-fetch recent pings for status computation (only need 3 per host)
+    all_hosts = list(resource.hosts)
+    for child in resource.children:
+        all_hosts.extend(child.hosts)
+    _prefetch_recent_pings(all_hosts, limit=3)
+
     in_maintenance = MaintenanceWindow.resource_in_maintenance(resource_id)
     return render_template('resources/_status_badge.html', resource=resource, in_maintenance=in_maintenance)
 
@@ -50,33 +95,63 @@ def dashboard():
         .filter(Resource.is_active.is_(True))
         .filter(Resource.resource_type != 'device')
         .filter(Resource.hosts.any())
+        .options(selectinload(Resource.hosts))
         .order_by(Resource.name)
         .all()
     )
+
+    # Batch pre-fetch recent pings for all hosts (1 query instead of N per host)
+    all_hosts = []
+    for r in resources:
+        all_hosts.extend(r.hosts)
+    _prefetch_recent_pings(all_hosts, limit=30)
+
     return render_template('monitoring/dashboard.html', resources=resources)
+
+
+def _fetch_ping_results_by_host(host_ids, since):
+    """Fetch ping results for multiple hosts since a date, grouped by host_id.
+
+    Returns dict of {host_id: [PingResult, ...]} ordered by checked_at asc.
+    Single query instead of N queries.
+    """
+    if not host_ids:
+        return {}
+    results = (
+        PingResult.query
+        .filter(PingResult.host_id.in_(host_ids))
+        .filter(PingResult.checked_at >= since)
+        .order_by(PingResult.host_id, PingResult.checked_at.asc())
+        .all()
+    )
+    grouped = {hid: [] for hid in host_ids}
+    for r in results:
+        grouped[r.host_id].append(r)
+    return grouped
 
 
 @bp.route('/health/<int:resource_id>')
 @login_required
 def health_history(resource_id):
     """Health history page: uptime percentage over time for a resource."""
-    resource = db.session.get(Resource, resource_id) or abort(404)
+    resource = (
+        Resource.query.filter_by(id=resource_id)
+        .options(selectinload(Resource.hosts))
+        .first()
+    ) or abort(404)
     days = request.args.get('days', 7, type=int)
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    hosts = resource.hosts.all()
+    hosts = list(resource.hosts)
+    host_ids = [h.id for h in hosts]
+    pings_by_host = _fetch_ping_results_by_host(host_ids, since)
+
     host_data = []
     overall_total = 0
     overall_up = 0
 
     for host in hosts:
-        results = (
-            PingResult.query
-            .filter_by(host_id=host.id)
-            .filter(PingResult.checked_at >= since)
-            .order_by(PingResult.checked_at.asc())
-            .all()
-        )
+        results = pings_by_host.get(host.id, [])
         total = len(results)
         up = sum(1 for r in results if r.is_reachable)
         uptime_pct = (up / total * 100) if total > 0 else 0
@@ -103,27 +178,27 @@ def health_history(resource_id):
 @login_required
 def health_data(resource_id):
     """JSON uptime data for chart rendering."""
-    resource = db.session.get(Resource, resource_id) or abort(404)
+    resource = (
+        Resource.query.filter_by(id=resource_id)
+        .options(selectinload(Resource.hosts))
+        .first()
+    ) or abort(404)
     days = request.args.get('days', 7, type=int)
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    hosts = resource.hosts.all()
+    hosts = list(resource.hosts)
+    host_ids = [h.id for h in hosts]
+    pings_by_host = _fetch_ping_results_by_host(host_ids, since)
+
     data = {}
     for host in hosts:
-        results = (
-            PingResult.query
-            .filter_by(host_id=host.id)
-            .filter(PingResult.checked_at >= since)
-            .order_by(PingResult.checked_at.asc())
-            .all()
-        )
         data[host.label or host.address] = [
             {
                 'time': r.checked_at.isoformat(),
                 'reachable': r.is_reachable,
                 'response_time': r.response_time_ms,
             }
-            for r in results
+            for r in pings_by_host.get(host.id, [])
         ]
 
     return jsonify(data)
@@ -141,13 +216,22 @@ def usage_analytics():
         Resource.resource_type != 'device'
     ).order_by(Resource.name).all()
 
+    # Batch-load all relevant bookings in one query instead of N
+    testbed_ids = [tb.id for tb in testbeds]
+    all_bookings = Booking.query.filter(
+        Booking.resource_id.in_(testbed_ids),
+        Booking.status == 'confirmed',
+        Booking.end_time >= since,
+    ).all() if testbed_ids else []
+
+    # Group by resource_id
+    bookings_by_resource = {}
+    for b in all_bookings:
+        bookings_by_resource.setdefault(b.resource_id, []).append(b)
+
     resource_stats = []
     for tb in testbeds:
-        bookings = Booking.query.filter(
-            Booking.resource_id == tb.id,
-            Booking.status == 'confirmed',
-            Booking.end_time >= since,
-        ).all()
+        bookings = bookings_by_resource.get(tb.id, [])
 
         booked_hours = 0
         for b in bookings:

@@ -3,12 +3,14 @@ import shutil
 
 from flask import render_template, redirect, url_for, flash, abort, current_app, request, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
 
 from app.admin import bp
-from app.admin.forms import UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm, LdapSettingsForm, LogoUploadForm, SwitchSettingsForm
+from app.admin.forms import (UserCreateForm, UserEditForm, UserResetPasswordForm, SmtpSettingsForm,
+                             LdapSettingsForm, LogoUploadForm, SwitchSettingsForm, ResourceGroupForm)
 from app.extensions import csrf, db
-from app.models import User, Resource, Booking, AppSettings, AuditLog
+from app.models import User, Resource, Booking, AppSettings, AuditLog, ResourceGroup
 
 
 def admin_required(f):
@@ -269,12 +271,116 @@ def audit_log():
         query = query.filter(AuditLog.action.like(f'{action_filter}%'))
 
     total = query.count()
-    entries = query.offset((page - 1) * per_page).limit(per_page).all()
+    entries = query.options(joinedload(AuditLog.user)).offset((page - 1) * per_page).limit(per_page).all()
     total_pages = (total + per_page - 1) // per_page
 
     return render_template('admin/audit_log.html', entries=entries,
                            page=page, total_pages=total_pages,
                            action_filter=action_filter)
+
+
+# --- Access Groups Management ---
+
+@bp.route('/groups')
+@login_required
+@admin_required
+def groups():
+    all_groups = ResourceGroup.query.order_by(ResourceGroup.name).all()
+    return render_template('admin/groups.html', groups=all_groups)
+
+
+@bp.route('/groups/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_group():
+    form = ResourceGroupForm()
+    if form.validate_on_submit():
+        if ResourceGroup.query.filter_by(name=form.name.data).first():
+            flash(f'Group "{form.name.data}" already exists.', 'danger')
+            return render_template('admin/group_form.html', form=form, title='Create Access Group')
+        group = ResourceGroup(
+            name=form.name.data,
+            description=form.description.data or '',
+            ldap_dn=form.ldap_dn.data or None,
+        )
+        db.session.add(group)
+        AuditLog.log('group.create', 'resource_group', None, {'name': group.name}, user_id=current_user.id)
+        db.session.commit()
+        flash(f'Access group "{group.name}" created.', 'success')
+        return redirect(url_for('admin.groups'))
+    return render_template('admin/group_form.html', form=form, title='Create Access Group')
+
+
+@bp.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_group(group_id):
+    group = db.session.get(ResourceGroup, group_id) or abort(404)
+    form = ResourceGroupForm(obj=group)
+    if form.validate_on_submit():
+        existing = ResourceGroup.query.filter_by(name=form.name.data).first()
+        if existing and existing.id != group.id:
+            flash(f'Group "{form.name.data}" already exists.', 'danger')
+            users_list = User.query.order_by(User.display_name).all()
+            resources_list = Resource.query.filter_by(parent_id=None).filter(
+                Resource.resource_type != 'device'
+            ).order_by(Resource.name).all()
+            return render_template('admin/group_form.html', form=form, title=f'Edit {group.name}',
+                                   group=group, users_list=users_list, resources_list=resources_list)
+        group.name = form.name.data
+        group.description = form.description.data or ''
+        group.ldap_dn = form.ldap_dn.data or None
+        AuditLog.log('group.update', 'resource_group', group.id, {'name': group.name}, user_id=current_user.id)
+        db.session.commit()
+        flash(f'Access group "{group.name}" updated.', 'success')
+        return redirect(url_for('admin.groups'))
+    users_list = User.query.order_by(User.display_name).all()
+    resources_list = Resource.query.filter_by(parent_id=None).filter(
+        Resource.resource_type != 'device'
+    ).order_by(Resource.name).all()
+    return render_template('admin/group_form.html', form=form, title=f'Edit {group.name}',
+                           group=group, users_list=users_list, resources_list=resources_list)
+
+
+@bp.route('/groups/<int:group_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_group(group_id):
+    group = db.session.get(ResourceGroup, group_id) or abort(404)
+    name = group.name
+    AuditLog.log('group.delete', 'resource_group', group.id, {'name': name}, user_id=current_user.id)
+    db.session.delete(group)
+    db.session.commit()
+    flash(f'Access group "{name}" deleted.', 'success')
+    return redirect(url_for('admin.groups'))
+
+
+@bp.route('/groups/<int:group_id>/members', methods=['POST'])
+@login_required
+@admin_required
+def update_group_members(group_id):
+    """Update group members from form checkboxes."""
+    group = db.session.get(ResourceGroup, group_id) or abort(404)
+    member_ids = request.form.getlist('member_ids', type=int)
+    new_members = User.query.filter(User.id.in_(member_ids)).all() if member_ids else []
+    group.members = new_members
+    db.session.commit()
+    flash(f'Members updated for "{group.name}".', 'success')
+    return redirect(url_for('admin.edit_group', group_id=group.id))
+
+
+@bp.route('/groups/<int:group_id>/resources', methods=['POST'])
+@login_required
+@admin_required
+def update_group_resources(group_id):
+    """Update which resources are restricted to this group."""
+    group = db.session.get(ResourceGroup, group_id) or abort(404)
+    resource_ids = request.form.getlist('resource_ids', type=int)
+    new_resources = Resource.query.filter(Resource.id.in_(resource_ids)).all() if resource_ids else []
+    group.resources = new_resources
+    db.session.commit()
+    flash(f'Resource assignments updated for "{group.name}".', 'success')
+    return redirect(url_for('admin.edit_group', group_id=group.id))
 
 
 # --- Drive Storage Management ---

@@ -17,6 +17,19 @@ resource_tags = db.Table(
     db.Column('tag_id', db.Integer, db.ForeignKey('tags.id'), primary_key=True),
 )
 
+# ===== Association tables for ResourceGroup =====
+group_members = db.Table(
+    'group_members',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('resource_groups.id'), primary_key=True),
+)
+
+resource_group_access = db.Table(
+    'resource_group_access',
+    db.Column('resource_id', db.Integer, db.ForeignKey('resources.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('resource_groups.id'), primary_key=True),
+)
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -62,14 +75,14 @@ class Resource(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     parent_id = db.Column(db.Integer, db.ForeignKey('resources.id'), nullable=True)
 
-    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='dynamic',
+    children = db.relationship('Resource', backref=db.backref('parent', remote_side='Resource.id'), lazy='select',
                                cascade='all, delete-orphan')
-    hosts = db.relationship('ResourceHost', backref='resource', lazy='dynamic',
+    hosts = db.relationship('ResourceHost', backref='resource', lazy='select',
                             order_by='ResourceHost.label',
                             cascade='all, delete-orphan')
-    bookings = db.relationship('Booking', backref='resource', lazy='dynamic',
+    bookings = db.relationship('Booking', backref='resource', lazy='select',
                                cascade='all, delete-orphan')
-    tags = db.relationship('Tag', secondary=resource_tags, back_populates='resources', lazy='dynamic')
+    tags = db.relationship('Tag', secondary=resource_tags, back_populates='resources', lazy='select')
 
     @property
     def is_testbed(self):
@@ -81,10 +94,7 @@ class Resource(db.Model):
 
         A host is only 'offline' if the last 3 consecutive pings all failed.
         """
-        results = []
-        for host in self.hosts.all():
-            results.append((host, host.ping_status))
-        return results
+        return [(host, host.ping_status) for host in self.hosts]
 
     @property
     def status(self):
@@ -93,7 +103,7 @@ class Resource(db.Model):
         Only hosts marked as critical affect the overall status.
         Non-critical hosts are informational and don't trigger degraded.
         """
-        host_list = self.hosts.all()
+        host_list = self.hosts
         if host_list:
             # Only critical hosts determine the resource status
             critical_statuses = []
@@ -115,7 +125,7 @@ class Resource(db.Model):
             return 'unknown'
 
         # No hosts: aggregate active children statuses
-        child_list = [c for c in self.children.all() if c.is_active]
+        child_list = [c for c in self.children if c.is_active]
         if not child_list:
             return 'unknown'
 
@@ -140,8 +150,8 @@ class Resource(db.Model):
     @property
     def all_children(self):
         """Return exclusive children (via parent_id) + shared children (via assignments)."""
-        exclusive = list(self.children.all())
-        shared = [a.child for a in self.shared_child_assignments.all()]
+        exclusive = list(self.children)
+        shared = [a.child for a in self.shared_child_assignments]
         seen = {c.id for c in exclusive}
         for c in shared:
             if c.id not in seen:
@@ -156,7 +166,7 @@ class Resource(db.Model):
         if self.parent:
             parents.append(self.parent)
         seen = {p.id for p in parents}
-        for a in self.shared_parent_assignments.all():
+        for a in self.shared_parent_assignments:
             if a.parent_id not in seen:
                 parents.append(a.parent)
                 seen.add(a.parent_id)
@@ -168,10 +178,28 @@ class Resource(db.Model):
 
         If the testbed has no shared-child assignments, returns 1 (standard single booking).
         """
-        assignments = self.shared_child_assignments.all()
+        assignments = list(self.shared_child_assignments)
         if not assignments:
             return 1
         return min(a.slots for a in assignments)
+
+    def is_visible_to(self, user):
+        """Check if user can see/book this resource based on group restrictions.
+
+        No access_groups = available to everyone (backwards-compatible).
+        Child resources inherit parent's group restrictions.
+        Admins bypass all restrictions.
+        """
+        if user.is_admin:
+            return True
+        groups = self.access_groups
+        if not groups and self.parent_id and self.parent:
+            groups = self.parent.access_groups
+        if not groups:
+            return True
+        user_group_ids = {g.id for g in user.resource_groups}
+        resource_group_ids = {g.id for g in groups}
+        return bool(user_group_ids & resource_group_ids)
 
     def __repr__(self):
         return f'<Resource {self.name}>'
@@ -197,10 +225,10 @@ class ResourceAssignment(db.Model):
     __table_args__ = (db.UniqueConstraint('parent_id', 'child_id', name='uq_assignment_parent_child'),)
 
     parent = db.relationship('Resource', foreign_keys=[parent_id],
-                             backref=db.backref('shared_child_assignments', lazy='dynamic',
+                             backref=db.backref('shared_child_assignments', lazy='select',
                                                 cascade='all, delete-orphan'))
     child = db.relationship('Resource', foreign_keys=[child_id],
-                            backref=db.backref('shared_parent_assignments', lazy='dynamic',
+                            backref=db.backref('shared_parent_assignments', lazy='select',
                                                cascade='all, delete-orphan'))
 
     def __repr__(self):
@@ -215,7 +243,7 @@ class Vlan(db.Model):
     name = db.Column(db.String(100), nullable=False, default='')
     description = db.Column(db.Text, default='')
 
-    subnets = db.relationship('Subnet', backref='vlan', lazy='dynamic',
+    subnets = db.relationship('Subnet', backref='vlan', lazy='select',
                               order_by='Subnet.cidr',
                               cascade='all, delete-orphan')
 
@@ -233,7 +261,7 @@ class Subnet(db.Model):
     gateway = db.Column(db.String(45), nullable=True)
     description = db.Column(db.Text, default='')
 
-    hosts = db.relationship('ResourceHost', backref='subnet', lazy='dynamic')
+    hosts = db.relationship('ResourceHost', backref='subnet', lazy='select')
 
     @property
     def network(self):
@@ -242,7 +270,7 @@ class Subnet(db.Model):
 
     @property
     def host_count(self):
-        return self.hosts.count()
+        return len(self.hosts)
 
     def contains(self, addr):
         """Check if an IP address string falls within this subnet."""
@@ -307,6 +335,10 @@ class ResourceHost(db.Model):
 
     @property
     def latest_ping(self):
+        # Use pre-fetched data if available (set by _prefetch_recent_pings)
+        cached = getattr(self, '_recent_pings', None)
+        if cached is not None:
+            return cached[0] if cached else None
         return self.ping_results.first()
 
     @property
@@ -316,7 +348,12 @@ class ResourceHost(db.Model):
         Requires OFFLINE_THRESHOLD consecutive failures before reporting
         offline, to avoid flapping on a single timeout.
         """
-        recent_pings = self.ping_results.limit(self.OFFLINE_THRESHOLD).all()
+        # Use pre-fetched data if available (set by _prefetch_recent_pings)
+        cached = getattr(self, '_recent_pings', None)
+        if cached is not None:
+            recent_pings = cached[:self.OFFLINE_THRESHOLD]
+        else:
+            recent_pings = self.ping_results.limit(self.OFFLINE_THRESHOLD).all()
         if not recent_pings:
             return 'unknown'
         if recent_pings[0].is_reachable:
@@ -440,6 +477,24 @@ class Tag(db.Model):
 
     def __repr__(self):
         return f'<Tag {self.name}>'
+
+
+class ResourceGroup(db.Model):
+    __tablename__ = 'resource_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.Text, default='')
+    ldap_dn = db.Column(db.String(500), nullable=True, unique=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    members = db.relationship('User', secondary=group_members,
+                              backref=db.backref('resource_groups', lazy='select'))
+    resources = db.relationship('Resource', secondary=resource_group_access,
+                                backref=db.backref('access_groups', lazy='select'))
+
+    def __repr__(self):
+        return f'<ResourceGroup {self.name}>'
 
 
 # ===== Favorite resources =====
@@ -588,9 +643,20 @@ class AccessPoint(db.Model):
     last_accessed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-    resource = db.relationship('Resource', backref=db.backref('access_points', lazy='dynamic',
+    required_group_id = db.Column(db.Integer, db.ForeignKey('resource_groups.id'), nullable=True)
+
+    resource = db.relationship('Resource', backref=db.backref('access_points', lazy='select',
                                                               cascade='all, delete-orphan'))
+    required_group = db.relationship('ResourceGroup', foreign_keys=[required_group_id])
     last_user = db.relationship('User', foreign_keys=[last_accessed_by])
+
+    def is_visible_to(self, user):
+        """Check if user can see this access point based on group restriction."""
+        if user.is_admin:
+            return True
+        if not self.required_group_id:
+            return True
+        return any(g.id == self.required_group_id for g in user.resource_groups)
 
     @property
     def password(self):
@@ -634,12 +700,16 @@ class AccessPoint(db.Model):
 def can_user_access(user, resource):
     """Check if user can access a resource's access points.
 
-    Requires an active confirmed booking on the resource itself,
+    Requires group membership (if resource has access_groups),
+    plus an active confirmed booking on the resource itself,
     or on any parent testbed (exclusive or shared).
     Admins always have access.
     """
     if user.is_admin:
         return True
+    # Group restriction gate
+    if not resource.is_visible_to(user):
+        return False
     # Direct booking on this resource
     if Booking.user_has_active_booking(user.id, resource.id):
         return True
@@ -647,7 +717,7 @@ def can_user_access(user, resource):
     if resource.parent_id and Booking.user_has_active_booking(user.id, resource.parent_id):
         return True
     # Shared parent testbeds
-    for a in resource.shared_parent_assignments.all():
+    for a in resource.shared_parent_assignments:
         if Booking.user_has_active_booking(user.id, a.parent_id):
             return True
     return False

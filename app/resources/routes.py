@@ -3,12 +3,14 @@ from datetime import datetime, timezone, timedelta
 
 from flask import render_template, redirect, url_for, flash, abort, request, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.resources import bp
 from app.resources.forms import ResourceForm, ChildResourceForm, HostForm
 from app.extensions import db
 from app.models import (Resource, ResourceHost, ResourceAssignment, AuditLog, Tag, Favorite,
-                        MaintenanceWindow, AlertRule, AccessPoint, Booking, can_user_access)
+                        MaintenanceWindow, AlertRule, AccessPoint, Booking, ResourceGroup,
+                        can_user_access)
 
 
 def _is_valid_host(value):
@@ -51,7 +53,7 @@ def _sync_hosts_from_form(resource):
             critical_flags.append(True)
 
     # Delete existing hosts
-    for host in resource.hosts.all():
+    for host in list(resource.hosts):
         db.session.delete(host)
 
     # Add new hosts (skip empty rows and invalid addresses)
@@ -96,10 +98,20 @@ def list_resources():
     tag_filter = request.args.get('tag', '')
     query = Resource.query.filter_by(parent_id=None).filter(
         Resource.resource_type != 'device'
+    ).options(
+        selectinload(Resource.children),
+        selectinload(Resource.shared_child_assignments),
+        selectinload(Resource.hosts),
+        selectinload(Resource.tags),
+        selectinload(Resource.access_groups),
     )
     if tag_filter:
         query = query.filter(Resource.tags.any(Tag.name == tag_filter))
     testbeds = query.order_by(Resource.name).all()
+
+    # Filter by group access (non-admins only see resources they have access to)
+    if not current_user.is_admin:
+        testbeds = [t for t in testbeds if t.is_visible_to(current_user)]
     all_tags = Tag.query.filter(Tag.resources.any()).order_by(Tag.name).all()
 
     # Get user's favorite resource IDs
@@ -107,27 +119,61 @@ def list_resources():
     if current_user.is_authenticated:
         fav_ids = {f.resource_id for f in Favorite.query.filter_by(user_id=current_user.id).all()}
 
-    # Precompute access points per testbed (own + children + shared children)
+    # Batch-load all access points for all relevant resource IDs (1 query instead of N)
+    all_resource_ids = set()
+    for tb in testbeds:
+        all_resource_ids.add(tb.id)
+        all_resource_ids.update(c.id for c in tb.children)
+        all_resource_ids.update(a.child_id for a in tb.shared_child_assignments)
+    all_aps = AccessPoint.query.filter(
+        AccessPoint.resource_id.in_(all_resource_ids), AccessPoint.is_enabled == True
+    ).all() if all_resource_ids else []
+
+    # Filter by group access for current user
+    all_aps = [ap for ap in all_aps if ap.is_visible_to(current_user)]
+
+    # Group access points by testbed
+    ap_by_resource = {}
+    for ap in all_aps:
+        ap_by_resource.setdefault(ap.resource_id, []).append(ap)
+
     testbed_aps = {}
     for tb in testbeds:
         child_ids = [c.id for c in tb.children]
         shared_ids = [a.child_id for a in tb.shared_child_assignments]
         all_ids = [tb.id] + child_ids + shared_ids
-        aps = AccessPoint.query.filter(
-            AccessPoint.resource_id.in_(all_ids), AccessPoint.is_enabled == True
-        ).all()
+        aps = []
+        for rid in all_ids:
+            aps.extend(ap_by_resource.get(rid, []))
         if aps:
             testbed_aps[tb.id] = aps
 
+    # Batch-load active bookers for all testbeds (1 query instead of N)
+    now = datetime.now(timezone.utc)
+    testbed_ids = [tb.id for tb in testbeds]
+    active_bookings = Booking.query.filter(
+        Booking.resource_id.in_(testbed_ids),
+        Booking.status == 'confirmed',
+        Booking.start_time <= now,
+        Booking.end_time >= now,
+    ).options(joinedload(Booking.user)).all() if testbed_ids else []
+
+    active_bookers = {}
+    for b in active_bookings:
+        if b.resource_id not in active_bookers and b.user_id != current_user.id:
+            active_bookers[b.resource_id] = b.user
+
     return render_template('resources/list.html', testbeds=testbeds, all_tags=all_tags,
                            current_tag=tag_filter, fav_ids=fav_ids,
-                           testbed_aps=testbed_aps)
+                           testbed_aps=testbed_aps, active_bookers=active_bookers)
 
 
 @bp.route('/<int:resource_id>')
 @login_required
 def detail(resource_id):
     resource = db.session.get(Resource, resource_id) or abort(404)
+    if not resource.is_visible_to(current_user):
+        abort(403)
     children = Resource.query.filter_by(parent_id=resource_id).order_by(Resource.name).all()
     host_form = HostForm()
     is_favorited = Favorite.query.filter_by(user_id=current_user.id, resource_id=resource_id).first() is not None
@@ -166,7 +212,7 @@ def detail(resource_id):
             Resource.id != resource_id,
         ).order_by(Resource.name).all()
 
-    # Access points: own + children's (for testbeds)
+    # Access points: own + children's (for testbeds), filtered by group access
     own_access_points = AccessPoint.query.filter_by(resource_id=resource_id, is_enabled=True).all()
     child_access_points = []
     if resource.is_testbed:
@@ -176,7 +222,8 @@ def detail(resource_id):
             child_access_points = AccessPoint.query.filter(
                 AccessPoint.resource_id.in_(child_ids), AccessPoint.is_enabled == True
             ).all()
-    all_access_points = own_access_points + child_access_points
+    all_access_points = [ap for ap in own_access_points + child_access_points
+                         if ap.is_visible_to(current_user)]
     all_access_points_admin = AccessPoint.query.filter_by(resource_id=resource_id).all() if current_user.is_admin else []
 
     # Check if user has an active booking for this testbed
@@ -213,7 +260,8 @@ def detail(resource_id):
                            has_active_booking=has_active_booking,
                            can_access=can_access,
                            active_booker=active_booker,
-                           available_testbeds=available_testbeds)
+                           available_testbeds=available_testbeds,
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/add', methods=['GET', 'POST'])
@@ -235,11 +283,16 @@ def add_resource():
         # Handle tags
         tag_names = request.form.get('tags', '').split(',')
         _sync_tags(resource, tag_names)
+        # Handle access groups
+        group_ids = request.form.getlist('access_group_ids', type=int)
+        resource.access_groups = ResourceGroup.query.filter(ResourceGroup.id.in_(group_ids)).all() if group_ids else []
         AuditLog.log('resource.create', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Testbed "{resource.name}" created.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
-    return render_template('resources/form.html', form=form, title='Add Testbed', all_tags=Tag.query.order_by(Tag.name).all())
+    return render_template('resources/form.html', form=form, title='Add Testbed',
+                           all_tags=Tag.query.order_by(Tag.name).all(),
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/<int:resource_id>/edit', methods=['GET', 'POST'])
@@ -257,12 +310,16 @@ def edit_resource(resource_id):
         _sync_hosts_from_form(resource)
         tag_names = request.form.get('tags', '').split(',')
         _sync_tags(resource, tag_names)
+        # Handle access groups
+        group_ids = request.form.getlist('access_group_ids', type=int)
+        resource.access_groups = ResourceGroup.query.filter(ResourceGroup.id.in_(group_ids)).all() if group_ids else []
         AuditLog.log('resource.update', 'resource', resource.id, {'name': resource.name}, user_id=current_user.id)
         db.session.commit()
         flash(f'Resource "{resource.name}" updated.', 'success')
         return redirect(url_for('resources.detail', resource_id=resource.id))
     return render_template('resources/form.html', form=form, title=f'Edit {resource.name}',
-                           resource=resource, all_tags=Tag.query.order_by(Tag.name).all())
+                           resource=resource, all_tags=Tag.query.order_by(Tag.name).all(),
+                           all_groups=ResourceGroup.query.order_by(ResourceGroup.name).all())
 
 
 @bp.route('/<int:resource_id>/delete', methods=['POST'])
@@ -654,9 +711,8 @@ def _find_testbed_for_resource(resource):
     if resource.parent_id:
         return resource.parent_id
     # Check shared parents
-    a = resource.shared_parent_assignments.first()
-    if a:
-        return a.parent_id
+    if resource.shared_parent_assignments:
+        return resource.shared_parent_assignments[0].parent_id
     return resource.id
 
 
@@ -718,6 +774,9 @@ def add_access_point(resource_id):
     password = request.form.get('password', '').strip()
     display_name = request.form.get('display_name', '').strip()
 
+    required_group_str = request.form.get('required_group_id', '').strip()
+    required_group_id = int(required_group_str) if required_group_str else None
+
     ap = AccessPoint(
         resource_id=resource_id,
         protocol=protocol,
@@ -725,6 +784,7 @@ def add_access_point(resource_id):
         port=port,
         username=username,
         display_name=display_name,
+        required_group_id=required_group_id,
     )
     ap.password = password
     db.session.add(ap)
@@ -767,6 +827,8 @@ def edit_access_point(resource_id, ap_id):
         ap.password = new_password
     ap.display_name = request.form.get('display_name', ap.display_name).strip()
     ap.is_enabled = 'is_enabled' in request.form
+    required_group_str = request.form.get('required_group_id', '').strip()
+    ap.required_group_id = int(required_group_str) if required_group_str else None
     db.session.commit()
     flash(f'Access point updated.', 'success')
     return redirect(url_for('resources.detail', resource_id=resource_id))
@@ -794,6 +856,10 @@ def delete_access_point(resource_id, ap_id):
 def connect_access_point(resource_id, ap_id):
     ap = db.session.get(AccessPoint, ap_id) or abort(404)
     resource = db.session.get(Resource, ap.resource_id) or abort(404)
+
+    # Check group restriction on the access point
+    if not ap.is_visible_to(current_user):
+        abort(403)
 
     # Check booking status (for quick-book prompt), but allow connect regardless
     has_booking = _can_access_check(resource)

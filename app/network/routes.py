@@ -2,6 +2,7 @@ import ipaddress as _ipaddress
 
 from flask import render_template, redirect, url_for, flash, abort, jsonify, request
 from flask_login import login_required, current_user
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.network import bp
 from app.network.forms import VlanForm, SubnetForm
@@ -26,7 +27,7 @@ def _wipe_discovered_devices(subnet_id=None):
     count = len(devices)
     for device in devices:
         # Delete ping results for device hosts
-        host_ids = [h.id for h in device.hosts.all()]
+        host_ids = [h.id for h in device.hosts]
         if host_ids:
             PingResult.query.filter(PingResult.host_id.in_(host_ids)).delete(synchronize_session=False)
         db.session.delete(device)
@@ -52,11 +53,21 @@ def admin_required(f):
 def overview():
     """Network overview: all VLANs with their subnets and linked hosts."""
     from app.network.switch_sync import is_switch_configured
-    vlans = Vlan.query.order_by(Vlan.number).all()
-    unlinked_hosts = ResourceHost.query.filter_by(subnet_id=None).all()
+    vlans = (
+        Vlan.query
+        .options(selectinload(Vlan.subnets).selectinload(Subnet.hosts).joinedload(ResourceHost.resource))
+        .order_by(Vlan.number)
+        .all()
+    )
+    unlinked_hosts = (
+        ResourceHost.query
+        .filter_by(subnet_id=None)
+        .options(joinedload(ResourceHost.resource))
+        .all()
+    )
     discovered_devices = Resource.query.filter_by(resource_type='device').filter(
         Resource.parent_id.is_(None)
-    ).order_by(Resource.name).all()
+    ).options(selectinload(Resource.hosts)).order_by(Resource.name).all()
     last_sync = AppSettings.get('switch_last_sync', '')
     last_discovery = AppSettings.get('switch_last_discovery', '')
     last_scan = AppSettings.get('subnet_last_scan', '')
@@ -91,7 +102,12 @@ def add_vlan():
 @bp.route('/vlans/<int:vlan_id>')
 @login_required
 def vlan_detail(vlan_id):
-    vlan = db.session.get(Vlan, vlan_id) or abort(404)
+    vlan = (
+        Vlan.query
+        .filter_by(id=vlan_id)
+        .options(selectinload(Vlan.subnets).selectinload(Subnet.hosts).joinedload(ResourceHost.resource))
+        .first()
+    ) or abort(404)
     # For bulk-assign: all non-device resources for the dropdown
     resources = Resource.query.filter(Resource.resource_type != 'device').order_by(Resource.name).all()
     return render_template('network/vlan_detail.html', vlan=vlan, resources=resources)
@@ -123,7 +139,7 @@ def edit_vlan(vlan_id):
 def delete_vlan(vlan_id):
     vlan = db.session.get(Vlan, vlan_id) or abort(404)
     # Unlink any hosts in this VLAN's subnets
-    for subnet in vlan.subnets.all():
+    for subnet in vlan.subnets:
         ResourceHost.query.filter_by(subnet_id=subnet.id).update({'subnet_id': None})
     name = f'VLAN {vlan.number}'
     db.session.delete(vlan)
@@ -402,7 +418,12 @@ def delete_device(resource_id):
 @login_required
 def ipam():
     """IP Address Management: show used/free IPs per subnet."""
-    subnets = Subnet.query.order_by(Subnet.cidr).all()
+    subnets = (
+        Subnet.query
+        .options(selectinload(Subnet.hosts).joinedload(ResourceHost.resource))
+        .order_by(Subnet.cidr)
+        .all()
+    )
     subnet_data = []
 
     for subnet in subnets:
@@ -416,7 +437,7 @@ def ipam():
             continue
 
         used_ips = set()
-        hosts_in_subnet = ResourceHost.query.filter_by(subnet_id=subnet.id).all()
+        hosts_in_subnet = subnet.hosts
         for h in hosts_in_subnet:
             try:
                 used_ips.add(str(_ipaddress.ip_address(h.address)))
@@ -445,7 +466,12 @@ def ipam():
 @login_required
 def topology():
     """Network topology map: visual diagram of VLANs, subnets, hosts."""
-    vlans = Vlan.query.order_by(Vlan.number).all()
+    vlans = (
+        Vlan.query
+        .options(selectinload(Vlan.subnets))
+        .order_by(Vlan.number)
+        .all()
+    )
     return render_template('network/topology.html', vlans=vlans)
 
 
@@ -453,7 +479,26 @@ def topology():
 @login_required
 def topology_data():
     """JSON data for the topology diagram."""
-    vlans = Vlan.query.order_by(Vlan.number).all()
+    from app.monitoring.routes import _prefetch_recent_pings
+
+    vlans = (
+        Vlan.query
+        .options(
+            selectinload(Vlan.subnets)
+            .selectinload(Subnet.hosts)
+            .joinedload(ResourceHost.resource)
+        )
+        .order_by(Vlan.number)
+        .all()
+    )
+
+    # Batch prefetch latest pings for all hosts (1 query instead of N)
+    all_hosts = []
+    for vlan in vlans:
+        for subnet in vlan.subnets:
+            all_hosts.extend(subnet.hosts)
+    _prefetch_recent_pings(all_hosts, limit=1)
+
     nodes = []
     edges = []
 
@@ -466,7 +511,7 @@ def topology_data():
             'color': '#0d6efd',
         })
 
-        for subnet in vlan.subnets.all():
+        for subnet in vlan.subnets:
             subnet_node_id = f'subnet-{subnet.id}'
             nodes.append({
                 'id': subnet_node_id,
@@ -476,7 +521,7 @@ def topology_data():
             })
             edges.append({'from': vlan_node_id, 'to': subnet_node_id})
 
-            for host in subnet.hosts.all():
+            for host in subnet.hosts:
                 host_node_id = f'host-{host.id}'
                 ping = host.latest_ping
                 status_color = '#6c757d'
@@ -517,7 +562,7 @@ def bulk_reassign(vlan_id):
         return redirect(url_for('network.vlan_detail', vlan_id=vlan_id))
 
     # Collect unique resources from selected hosts (only hosts in this VLAN's subnets)
-    subnet_ids = {s.id for s in vlan.subnets.all()}
+    subnet_ids = {s.id for s in vlan.subnets}
     resources_to_assign = set()
     for host_id in host_ids:
         host = db.session.get(ResourceHost, host_id)

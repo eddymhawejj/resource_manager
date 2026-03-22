@@ -61,6 +61,12 @@ class LogoUploadForm(FlaskForm):
     app_name = StringField('Application Name', validators=[Optional(), Length(max=100)])
 
 
+class ResourceGroupForm(FlaskForm):
+    name = StringField('Group Name', validators=[DataRequired(), Length(min=2, max=100)])
+    description = StringField('Description', validators=[Optional(), Length(max=500)])
+    ldap_dn = StringField('LDAP Group DN', validators=[Optional(), Length(max=500)])
+
+
 class SwitchSettingsForm(FlaskForm):
     switch_host = StringField('Switch Host/IP', validators=[Optional(), Length(max=200)])
     switch_username = StringField('Username', validators=[Optional(), Length(max=100)])

@@ -100,7 +100,7 @@
             </a>
           </div>
           <div class="card-body p-0">
-            {% set subnet_list = vlan.subnets.all() %}
+            {% set subnet_list = vlan.subnets %}
             {% if subnet_list %}
             <ul class="list-group list-group-flush">
               {% for subnet in subnet_list %}
@@ -218,7 +218,7 @@
               </a>
             </td>
             <td>
-              {% for host in device.hosts.all() %}
+              {% for host in device.hosts %}
               <div>
                 <code>{{ host.address }}</code><button class="copy-btn" data-copy="{{ host.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
                 {% if host.label %}<small class="text-muted ms-1">{{ host.label }}</small>{% endif %}
@@ -226,7 +226,7 @@
               {% endfor %}
             </td>
             <td>
-              {% for host in device.hosts.all() %}
+              {% for host in device.hosts %}
               <div>
                 {% if host.subnet %}
                 <span class="badge bg-success">{{ host.subnet.cidr }}</span>

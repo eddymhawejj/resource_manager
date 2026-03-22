@@ -49,7 +49,7 @@
             <label class="form-label">Tags</label>
             <input type="text" name="tags" class="form-control"
                    placeholder="Comma-separated tags, e.g. team-a, production, lab-1"
-                   value="{% if resource %}{{ resource.tags.all()|map(attribute='name')|join(', ') }}{% endif %}">
+                   value="{% if resource %}{{ resource.tags|map(attribute='name')|join(', ') }}{% endif %}">
             {% if all_tags is defined and all_tags %}
             <small class="form-text text-muted">
               Existing tags:
@@ -61,12 +61,38 @@
             {% endif %}
           </div>
 
+          <!-- Access Groups -->
+          {% if all_groups is defined and all_groups %}
+          <div class="mb-3">
+            <label class="form-label">Access Groups</label>
+            <small class="form-text text-muted d-block mb-2">
+              Restrict this resource to specific groups. If no groups are selected, all users can see and book it.
+            </small>
+            {% set current_group_ids = resource.access_groups|map(attribute='id')|list if resource and resource.access_groups else [] %}
+            {% for group in all_groups %}
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input" name="access_group_ids" value="{{ group.id }}"
+                     id="group-{{ group.id }}" {{ 'checked' if group.id in current_group_ids }}>
+              <label class="form-check-label" for="group-{{ group.id }}">
+                {{ group.name }}
+                {% if group.ldap_dn %}
+                <span class="badge bg-info text-dark" style="font-size: 0.65em;">LDAP</span>
+                {% endif %}
+                {% if group.description %}
+                <small class="text-muted">- {{ group.description }}</small>
+                {% endif %}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
           <!-- Hosts section -->
           <div class="mb-4">
             <label class="form-label">Hosts</label>
             <div id="hosts-list">
               {% if resource %}
-                {% for host in resource.hosts.all() %}
+                {% for host in resource.hosts %}
                 <div class="row g-2 mb-2 host-row">
                   <div class="col">
                     <input type="text" name="host_addresses[]" class="form-control form-control-sm"

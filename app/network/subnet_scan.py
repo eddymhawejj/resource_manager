@@ -272,12 +272,10 @@ def scan_subnets(subnet_id=None, max_workers=50, timeout=1, max_subnet_size=6553
                 if existing_resource:
                     # Hostname resolved → use hostname as the host address.
                     # Remove the old IP-based host and ensure a hostname host exists.
-                    existing_ip_host = existing_resource.hosts.filter_by(
-                        label='Subnet scan'
-                    ).first()
-                    existing_hostname_host = existing_resource.hosts.filter_by(
-                        label='Hostname'
-                    ).first()
+                    existing_ip_host = next(
+                        (h for h in existing_resource.hosts if h.label == 'Subnet scan'), None)
+                    existing_hostname_host = next(
+                        (h for h in existing_resource.hosts if h.label == 'Hostname'), None)
 
                     if existing_hostname_host:
                         existing_hostname_host.address = hostname

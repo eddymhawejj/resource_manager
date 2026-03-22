@@ -34,19 +34,49 @@ def authenticate_ldap(username, password, app_config):
 
         search_filter = f'(uid={ldap.filter.escape_filter_chars(username)})'
         result = conn.search_s(f'{user_dn},{base_dn}', ldap.SCOPE_SUBTREE, search_filter,
-                               ['cn', 'mail', 'uid'])
+                               ['cn', 'mail', 'uid', 'memberOf'])
 
         if result:
             dn, attrs = result[0]
+            groups = [g.decode('utf-8') for g in attrs.get('memberOf', [])]
             return {
                 'username': username,
                 'display_name': attrs.get('cn', [username.encode()])[0].decode('utf-8'),
                 'email': attrs.get('mail', [f'{username}@ldap'.encode()])[0].decode('utf-8'),
+                'groups': groups,
             }
 
         conn.unbind_s()
-        return {'username': username, 'display_name': username, 'email': f'{username}@ldap'}
+        return {'username': username, 'display_name': username, 'email': f'{username}@ldap', 'groups': []}
 
     except Exception as e:
         logger.error(f'LDAP authentication failed for {username}: {e}')
         return None
+
+
+def sync_user_groups(user, ldap_group_dns):
+    """Sync user's local group memberships based on LDAP group DNs.
+
+    For each ResourceGroup that has an ldap_dn set:
+    - If the user is in that LDAP group, add them as a member
+    - If the user is NOT in that LDAP group, remove them
+    Groups without an ldap_dn are managed manually and left untouched.
+    """
+    from app.models import ResourceGroup
+
+    mapped_groups = ResourceGroup.query.filter(ResourceGroup.ldap_dn.isnot(None)).all()
+    if not mapped_groups:
+        return
+
+    ldap_dns_lower = {dn.lower() for dn in ldap_group_dns}
+
+    for group in mapped_groups:
+        in_ldap_group = group.ldap_dn.lower() in ldap_dns_lower
+        is_member = user in group.members
+
+        if in_ldap_group and not is_member:
+            group.members.append(user)
+            logger.info(f'Added user {user.username} to group {group.name} (LDAP sync)')
+        elif not in_ldap_group and is_member:
+            group.members.remove(user)
+            logger.info(f'Removed user {user.username} from group {group.name} (LDAP sync)')

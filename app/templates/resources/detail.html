@@ -94,13 +94,23 @@
           <div class="col-sm-6 mb-3">
             <label class="form-label text-muted small mb-0">Tags</label>
             <div>
-              {% for tag in resource.tags.all() %}
+              {% for tag in resource.tags %}
               <span class="badge" style="background-color: {{ tag.color }};">{{ tag.name }}</span>
               {% else %}
               <span class="text-muted small">No tags</span>
               {% endfor %}
             </div>
           </div>
+          {% if resource.access_groups %}
+          <div class="col-sm-6 mb-3">
+            <label class="form-label text-muted small mb-0">Access Groups</label>
+            <div>
+              {% for group in resource.access_groups %}
+              <span class="badge bg-warning text-dark"><i class="bi bi-shield-lock me-1"></i>{{ group.name }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
           {% if resource.description %}
           <div class="col-12 mb-3">
             <label class="form-label text-muted small mb-0">Description</label>
@@ -160,7 +170,12 @@
                 <small class="text-muted ms-1">({{ ap.resource.name }})</small>
                 {% endif %}
               </div>
-              <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %}">{{ ap.protocol|upper }}</span>
+              <div class="d-flex gap-1">
+                {% if ap.required_group %}
+                <span class="badge bg-warning text-dark" title="Restricted to {{ ap.required_group.name }}"><i class="bi bi-shield-lock"></i> {{ ap.required_group.name }}</span>
+                {% endif %}
+                <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %}">{{ ap.protocol|upper }}</span>
+              </div>
             </div>
             <div class="d-flex align-items-center gap-1 mt-2">
               {% if active_booker %}
@@ -195,7 +210,7 @@
       <div class="collapse" id="ap-admin-form">
         <div class="card-footer bg-transparent">
           <h6 class="small text-muted mb-2">Add Access Point</h6>
-          {% set hosts = resource.hosts.all() %}
+          {% set hosts = resource.hosts %}
           <form method="POST" action="{{ url_for('resources.add_access_point', resource_id=resource.id) }}" id="ap-add-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2 mb-2">
@@ -230,11 +245,21 @@
                 <input type="password" name="password" class="form-control form-control-sm" placeholder="Password">
               </div>
             </div>
-            <div class="row g-2">
+            <div class="row g-2 mb-2">
               <div class="col-8">
                 <input type="text" name="display_name" class="form-control form-control-sm" placeholder="Display name (optional)">
               </div>
               <div class="col-4">
+                <select name="required_group_id" class="form-select form-select-sm" title="Restrict to group">
+                  <option value="">All users</option>
+                  {% for group in all_groups %}
+                  <option value="{{ group.id }}">{{ group.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="row g-2">
+              <div class="col">
                 <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add</button>
               </div>
             </div>
@@ -249,8 +274,23 @@
               <span class="badge bg-{% if ap.protocol == 'rdp' %}primary{% else %}dark{% endif %} me-1">{{ ap.protocol|upper }}</span>
               {{ ap.display_name or ap.hostname }}
               {% if not ap.is_enabled %}<span class="badge bg-secondary ms-1">Disabled</span>{% endif %}
+              {% if ap.required_group %}<span class="badge bg-warning text-dark ms-1"><i class="bi bi-shield-lock"></i> {{ ap.required_group.name }}</span>{% endif %}
             </small>
             <div class="d-flex gap-1">
+              <form method="POST" action="{{ url_for('resources.edit_access_point', resource_id=resource.id, ap_id=ap.id) }}" class="d-inline"
+                    title="Change group restriction">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="protocol" value="{{ ap.protocol }}">
+                <input type="hidden" name="display_name" value="{{ ap.display_name }}">
+                {% if ap.is_enabled %}<input type="hidden" name="is_enabled" value="on">{% endif %}
+                <select name="required_group_id" class="form-select form-select-sm py-0 px-1" style="font-size:0.7rem; width: auto; display: inline-block;"
+                        onchange="this.form.submit()">
+                  <option value="">All users</option>
+                  {% for group in all_groups %}
+                  <option value="{{ group.id }}" {{ 'selected' if ap.required_group_id == group.id }}>{{ group.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
               <form method="POST" action="{{ url_for('resources.edit_access_point', resource_id=resource.id, ap_id=ap.id) }}" class="d-inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="is_enabled" value="{{ 'false' if ap.is_enabled else 'true' }}">
@@ -275,9 +315,9 @@
 
     <!-- Hosts -->
     <div class="card mb-4">
-      <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts.count() }})</div>
+      <div class="card-header"><i class="bi bi-hdd-network me-2"></i>Hosts ({{ resource.hosts | length }})</div>
       <div class="card-body p-0">
-        {% set host_list = resource.hosts.all() %}
+        {% set host_list = resource.hosts %}
         {% if host_list %}
         <ul class="list-group list-group-flush">
           {% for host in host_list %}
@@ -358,7 +398,7 @@
     <div class="card">
       <div class="card-header"><i class="bi bi-activity me-2"></i>Ping History</div>
       <div class="card-body">
-        {% set host_list = resource.hosts.all() %}
+        {% set host_list = resource.hosts %}
         {% if host_list %}
           {% for host in host_list %}
           <div class="{% if not loop.first %}mt-3{% endif %}">
@@ -586,7 +626,7 @@
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
             <td>
-              {% set child_hosts = child.hosts.all() %}
+              {% set child_hosts = child.hosts %}
               {% if child_hosts %}
                 {% for h in child_hosts %}
                 <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
@@ -664,14 +704,14 @@
               <a href="{{ url_for('resources.detail', resource_id=child.id) }}" class="text-decoration-none fw-medium">
                 {{ child.name }}
               </a>
-              {% set other_parents = child.shared_parent_assignments.filter(child.shared_parent_assignments.property.entity.class_.parent_id != resource.id).count() %}
-              {% if child.shared_parent_assignments.count() > 1 %}
-              <small class="text-muted ms-1">(shared with {{ child.shared_parent_assignments.count() - 1 }} other{{ 's' if child.shared_parent_assignments.count() > 2 }})</small>
+              {% set spa_count = child.shared_parent_assignments | length %}
+              {% if spa_count > 1 %}
+              <small class="text-muted ms-1">(shared with {{ spa_count - 1 }} other{{ 's' if spa_count > 2 }})</small>
               {% endif %}
             </td>
             <td><span class="text-muted">{{ child.resource_type|title }}</span></td>
             <td>
-              {% set child_hosts = child.hosts.all() %}
+              {% set child_hosts = child.hosts %}
               {% if child_hosts %}
                 {% for h in child_hosts %}
                 <code class="me-1">{{ h.address }}</code><button class="copy-btn" data-copy="{{ h.address }}" title="Copy"><i class="bi bi-clipboard"></i></button>
