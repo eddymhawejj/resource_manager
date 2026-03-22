@@ -437,23 +437,24 @@ def ipam():
             continue
 
         used_ips = set()
+        hostname_count = 0
         hosts_in_subnet = subnet.hosts
         for h in hosts_in_subnet:
             try:
                 used_ips.add(str(_ipaddress.ip_address(h.address)))
             except ValueError:
-                from app.models import _resolve_to_ip
-                ip = _resolve_to_ip(h.address)
-                if ip:
-                    used_ips.add(str(ip))
+                # Host is a hostname (not raw IP) — it's already linked to this
+                # subnet, so count it as used without blocking DNS resolution.
+                hostname_count += 1
 
-        free_count = total_hosts - len(used_ips)
-        utilization = (len(used_ips) / total_hosts * 100) if total_hosts > 0 else 0
+        used_count = len(used_ips) + hostname_count
+        free_count = total_hosts - used_count
+        utilization = (used_count / total_hosts * 100) if total_hosts > 0 else 0
 
         subnet_data.append({
             'subnet': subnet,
             'total_hosts': total_hosts,
-            'used_count': len(used_ips),
+            'used_count': used_count,
             'free_count': max(free_count, 0),
             'utilization': round(utilization, 1),
             'hosts': hosts_in_subnet,

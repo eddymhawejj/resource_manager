@@ -32,7 +32,7 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="{{ url_for('monitoring.dashboard') }}" class="{% if request.endpoint and 'monitoring' in request.endpoint %}active{% endif %}">
+        <a href="{{ url_for('monitoring.dashboard') }}" class="{% if request.endpoint and request.endpoint.startswith('monitoring.') and 'analytics' not in request.endpoint %}active{% endif %}">
           <i class="bi bi-activity"></i> Monitoring
         </a>
       </li>
